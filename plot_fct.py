@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 def plot_points_only(px_true, pts3d, P_est, title="True vs. Reprojected Points"):
     """
