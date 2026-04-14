@@ -1,7 +1,31 @@
 import numpy as np
-from normalization import normalize
+import math
 from scipy.linalg import block_diag
 from scipy.optimize import least_squares
+
+def normalize(points):
+    """
+    This function normalizes the set of points before applying DLT and 8-point algorithm
+    to improve the accuracy.
+    Input:
+        - points: The set of 2D points (N, 3) - np.array
+    Output:
+        - T: Normalization matrix of size 3x3 (np.array)
+    """
+    N = points.shape[0]
+    centroid = 1/N * np.sum(points[:, :2], axis=0) #Calculate centroid
+    # Calculate shifted points 
+    shifted_points = points[:, :2] - centroid
+    d_avg = np.mean(np.sqrt(shifted_points[:, 0]**2 + shifted_points[:, 1]**2))
+    if d_avg == 0:
+        raise ValueError("All points are identical; normalization is undefined.")
+    s = math.sqrt(2)/d_avg #Scaling factor
+    T = np.array([
+        [s, 0, -s * centroid[0]],
+        [0, s, -s * centroid[1]],
+        [0, 0, 1]
+    ])
+    return T
 
 def linear_eq(points1, points2):
     """
@@ -47,18 +71,24 @@ def eight_point(points1, points2, K1 = None, K2 = None):
         K1_inv = np.linalg.inv(K1)
         K2_inv = np.linalg.inv(K2)
         points1 = K1_inv@points1.T # Convert the points from the image frame to the camera frame
+        points1 = points1.T
         points2 = K2_inv@points2.T
+        points2 = points2.T
 
     #1: Normalization: increase stability
     T1 = normalize(points1) # Normalization matrix
     T2 = normalize(points2)
-    norm1 = (T1 @ points1.T).T
-    norm2 = (T2 @ points2.T).T
+    if K1 is not None and K2 is not None: 
+        norm1 = (T1 @ points1.T).T
+        norm2 = (T2 @ points2.T).T
+    else:
+        norm1 = (T1 @ points1.T).T
+        norm2 = (T2 @ points2.T).T
 
     #2: Find the fundamental matrix of the normalized points
     A_hat = linear_eq(norm1, norm2) # Normalized linear system where A_hat*f_hat = 0
     U, S, Vh = np.linalg.svd(A_hat)
-    F_hat = Vh[-1, :].reshape(3, 3)
+    F_hat = Vh[8, :].reshape(3, 3)
 
     #3: Replace F_hat but Fprime_hat such that det Fprime_hat = 0
     U1, S1, Vh1 = np.linalg.svd(F_hat)
