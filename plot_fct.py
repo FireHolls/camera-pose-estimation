@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_points_only(px_true, pts3d, P_est, title="True vs. Reprojected Points"):
+def plot_points(px_true, pts3d, P_est, title="True vs. Reprojected Points"):
     """
     px_true: (2, N) True pixel coordinates (Ground Truth)
     pts3d:   (3, N) True 3D world points
