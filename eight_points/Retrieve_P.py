@@ -29,7 +29,6 @@ def get_R_t_from_epipolar(F, K = None):
     
     # Decompose the Essential matrix
     U, S, Vh = np.linalg.svd(E)
-    print(f"Sigma = {S}")
 
     # The translation is the last column of U (left null space)
     t = U[:, 2].reshape(-1, 1) 

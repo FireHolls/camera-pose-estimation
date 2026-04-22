@@ -30,8 +30,8 @@ def PointsGenerator(nbPoints, seed, bounds= None, nbPointPlanar = None):
     # make nbPointPlanar of y coordinates equal i.e. planar in XZ
     if nbPointPlanar is not None and (2 <= nbPointPlanar <= nbPoints):
         cst = np.random.uniform(ymin, ymax)
-        ys = np.zeros((nbPoints))
-        ys[0:nbPointPlanar] = cst
+        zs = np.zeros((nbPoints))
+        zs[0:nbPointPlanar] = cst
 
     X = np.zeros((3, nbPoints))
     X[0, :] = xs
