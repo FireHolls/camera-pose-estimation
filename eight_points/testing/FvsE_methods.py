@@ -14,12 +14,12 @@ import matplotlib.pyplot as plt
 
 # 1 Génération de la scène 
 bounds = np.array([-2.0, 2.0, -1.5, 1.5, 4.0, 10.0])
-pts3d  = PointsGenerator(nbPoints=200, seed=42, bounds=bounds)
+pts3d  = PointsGenerator(nbPoints=8, seed=42, bounds=bounds)
 
 # 2 Définition des caméras 
 K = get_K()
 R1, t1 = np.eye(3), np.zeros(3)
-R2, t2 = get_camera_pose(ry=8, tx=0.4, ty=0.0, tz=0.0)
+R2, t2 = get_camera_pose(rz=10)
 norm_t2 = np.linalg.norm(t2)
 
 # 3 Projection 
@@ -40,7 +40,9 @@ print(points1.shape)
 
 #6 Retrieve the translation vector and rotation matrices
 F = eight_point(points1.T, points2.T) # Calculate F first then deduce E
+print(F)
 tf, R_1f, R_2f = get_R_t_from_epipolar(F, K = K) 
+print(tf)
 E = eight_point(points1.T, points2.T, K1 = K, K2 = K) # Calculate E directly
 te, R_1e, R_2e = get_R_t_from_epipolar(E, K = None)
 

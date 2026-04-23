@@ -55,7 +55,7 @@ def P_estimation(t, R1, R2, K, s):
     Output:
         - P_est: Stack containing all the possible projection matrices (np.array of size 4x3x4)
     """
-
+    s = 1
     P_est1 = K@np.hstack((R1, s*t)) # Rotation 1, Positive translation
     P_est2 = K@np.hstack((R1, -s*t)) # Rotation 1, Negative translation
     P_est3 = K@np.hstack((R2, s*t)) # Rotation 2, Positive translation
