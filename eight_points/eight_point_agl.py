@@ -54,18 +54,20 @@ def linear_eq(points1, points2):
         A[i, 8] = 1
     return A
 
-def eight_point(points1, points2, K1 = None, K2 = None):
+def eight_point(pts1, pts2, K1 = None, K2 = None):
     """
     Function to execute the normalized 8-points algorithm to determine the fundamental matrix F or 
     the essential matrix if K1 and K2 are not None. 
     Input:
-        - points1: 2D homogenous points of the first image - pixel coordinates (np.array of size Nx3)
-        - points2: 2D homogenous points of the second image - pixel coordinates (np.array of size Nx3)
+        - pts1: 2D homogenous points of the first image - pixel coordinates (np.array of size Nx3)
+        - pts2: 2D homogenous points of the second image - pixel coordinates (np.array of size Nx3)
         - K1: Intrinsic parameter of the first camera (np.array of size 3x3) - optional
         - K2: Intrinsic parameter of the second camera (np.array of size 3x3) - optional
     Output:
         - F: Fundamental matrix (np.array 3x3) OR if K1 and K2 are not None: Essential matrix
     """
+    points1 = pts1.copy()
+    points2 = pts2.copy()
     # Function computes the essential matrix instead of the fundamental matrix
     if K1 is not None and K2 is not None: 
         K1_inv = np.linalg.inv(K1)
