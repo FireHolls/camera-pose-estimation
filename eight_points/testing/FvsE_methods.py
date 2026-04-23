@@ -19,7 +19,7 @@ pts3d  = PointsGenerator(nbPoints=8, seed=42, bounds=bounds)
 # 2 Définition des caméras 
 K = get_K()
 R1, t1 = np.eye(3), np.zeros(3)
-R2, t2 = get_camera_pose(rz=10)
+R2, t2 = get_camera_pose(rz=10, tx=4)
 norm_t2 = np.linalg.norm(t2)
 
 # 3 Projection 
