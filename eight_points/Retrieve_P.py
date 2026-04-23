@@ -43,7 +43,7 @@ def get_R_t_from_epipolar(F, K = None):
 
     return t, R1, R2
 
-def P_estimation(t, R1, R2, K, s):
+def P_estimation(t, R1, R2, K, s = None):
     """
     Function which assembles the four possible solution of the projection matrices (P' = K[R | t]).
     Input:
@@ -55,7 +55,8 @@ def P_estimation(t, R1, R2, K, s):
     Output:
         - P_est: Stack containing all the possible projection matrices (np.array of size 4x3x4)
     """
-    s = 1
+    if s is None:
+        s = 1
     P_est1 = K@np.hstack((R1, s*t)) # Rotation 1, Positive translation
     P_est2 = K@np.hstack((R1, -s*t)) # Rotation 1, Negative translation
     P_est3 = K@np.hstack((R2, s*t)) # Rotation 2, Positive translation

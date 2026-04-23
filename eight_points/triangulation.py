@@ -66,6 +66,7 @@ def triangulate(P1, P2, pts1, pts2):
     P1_norm = T1 @ P1
     P2_norm = T2 @ P2
 
+    #2: Calculate 3D points
     N = points1.shape[0]
     X = np.zeros((N, 4))
     for i in range(N):
