@@ -106,7 +106,7 @@ def _draw_3d(ax, scene, R_H, t_H, R_F, t_F, winner, planar, w=W_IMG, h=H_IMG):
     R1, t1 = np.eye(3), np.zeros(3)
 
     ax.scatter(pts3d[0], pts3d[1], pts3d[2],
-               c=pts3d[2], cmap='plasma', s=12, alpha=0.45, label='Points 3D')
+               c=pts3d[2], cmap='plasma', s=12, alpha=0.45, label='3D Points')
 
     _draw_frustum(ax, R1, t1, K, CAM1_C, 'Camera 1 (GT)', lw=2.0, w=w, h=h)
     _draw_cam_axes(ax, R1, t1)
@@ -117,20 +117,20 @@ def _draw_3d(ax, scene, R_H, t_H, R_F, t_F, winner, planar, w=W_IMG, h=H_IMG):
     if R_H is not None and t_H is not None:
         lw  = 2.4 if winner == 'H' else 1.2
         ls  = '-'  if winner == 'H' else '--'
-        lbl = 'Camera 2 H' + ('  [VAINQUEUR]' if winner == 'H' else '')
+        lbl = 'Camera 2 H' + ('  [WINNER]' if winner == 'H' else '')
         _draw_frustum(ax, R_H, t_H, K, H_C, lbl, lw=lw, ls=ls, w=w, h=h)
 
     if R_F is not None and t_F is not None:
         lw  = 2.4 if winner == 'F' else 1.2
         ls  = '-'  if winner == 'F' else '--'
-        lbl = 'Camera 2 F' + ('  [VAINQUEUR]' if winner == 'F' else '')
+        lbl = 'Camera 2 F' + ('  [WINNER]' if winner == 'F' else '')
         _draw_frustum(ax, R_F, t_F, K, F_C, lbl, lw=lw, ls=ls, w=w, h=h)
 
     ax.set_xlabel('X (m)', fontsize=8, labelpad=4)
     ax.set_ylabel('Y (m)', fontsize=8, labelpad=4)
     ax.set_zlabel('Z (m)', fontsize=8, labelpad=4)
-    scene_lbl = 'Planaire' if planar else 'Non-planaire'
-    ax.set_title(f'Vue 3D — {scene_lbl}', fontsize=10, pad=10)
+    scene_lbl = 'Planar' if planar else 'Non-planar'
+    ax.set_title(f'3D View — {scene_lbl}', fontsize=10, pad=10, color='#1e1e2e')
     ax.legend(fontsize=7, loc='upper left', framealpha=0.7)
     ax.view_init(elev=22, azim=-65)
 
@@ -158,16 +158,16 @@ def _format_image_ax(ax, title, w=W_IMG, h=H_IMG):
 
 def _draw_image_cam1(ax, px1, w=W_IMG, h=H_IMG):
     ax.scatter(px1[0], px1[1], s=8, c=CAM1_C, alpha=0.6, label='GT')
-    _format_image_ax(ax, 'Camera 1 — plan image', w, h)
+    _format_image_ax(ax, 'Camera 1 — image plane', w, h)
 
 
 def _draw_image_cam2_H(ax, px2, pts3d, R_H, t_H, K, winner, w=W_IMG, h=H_IMG):
     ax.scatter(px2[0], px2[1], s=8, c=CAM2_C, alpha=0.55, label='GT', zorder=2)
     if R_H is not None and t_H is not None:
         u, v = _project(pts3d, R_H, t_H, K)
-        lbl  = 'Reproj. H' + (' [vainqueur]' if winner == 'H' else '')
+        lbl  = 'Reproj. H' + (' [winner]' if winner == 'H' else '')
         ax.scatter(u, v, s=9, c=H_C, marker='x', alpha=0.85, label=lbl, zorder=3)
-    suffix = '  [VAINQUEUR]' if winner == 'H' else ''
+    suffix = '  [WINNER]' if winner == 'H' else ''
     _format_image_ax(ax, f'Camera 2 — Reprojection H{suffix}', w, h)
 
 
@@ -175,9 +175,9 @@ def _draw_image_cam2_F(ax, px2, pts3d, R_F, t_F, K, winner, w=W_IMG, h=H_IMG):
     ax.scatter(px2[0], px2[1], s=8, c=CAM2_C, alpha=0.55, label='GT', zorder=2)
     if R_F is not None and t_F is not None:
         u, v = _project(pts3d, R_F, t_F, K)
-        lbl  = 'Reproj. F' + (' [vainqueur]' if winner == 'F' else '')
+        lbl  = 'Reproj. F' + (' [winner]' if winner == 'F' else '')
         ax.scatter(u, v, s=9, c=F_C, marker='+', alpha=0.85, label=lbl, zorder=3)
-    suffix = '  [VAINQUEUR]' if winner == 'F' else ''
+    suffix = '  [WINNER]' if winner == 'F' else ''
     _format_image_ax(ax, f'Camera 2 — Reprojection F{suffix}', w, h)
 
 
@@ -190,14 +190,14 @@ def _draw_score_bar(ax, S_H, S_F, winner, ratio, thresh):
     bars[win_idx].set_linewidth(2.5)
 
     ax.axhline(thresh * total, color='#616161', ls='--', lw=1.2,
-               label=f'Seuil H  (ratio = {thresh})')
+               label=f'H threshold  (ratio = {thresh})')
     for bar, val in zip(bars, [S_H, S_F]):
         ax.text(bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + total * 0.012,
                 f'{val:.0f}', ha='center', va='bottom', fontsize=9)
 
     ax.set_title(f'Scores ORB-SLAM   ratio = {ratio:.3f}  ->  [{winner}]', fontsize=9)
-    ax.set_ylabel('Score (plus haut = meilleur)', fontsize=8)
+    ax.set_ylabel('Score (higher = better)', fontsize=8)
     ax.legend(fontsize=7, framealpha=0.7)
     ax.grid(True, axis='y', alpha=0.25)
     ax.tick_params(labelsize=8)
@@ -242,9 +242,9 @@ def plot_scene_3d(scene, R_H, t_H, R_F, t_F, winner, S_H, S_F, ratio, thresh,
     ax_c2f = fig.add_subplot(gs[2, 1])
     ax_bar = fig.add_subplot(gs[3, 1])
 
-    scene_lbl = 'Planaire (Z=5)' if planar else 'Non-planaire (Z in [3,7])'
+    scene_lbl = 'Planar (Z=5)' if planar else 'Non-planar (Z in [3,7])'
     fig.suptitle(
-        f'Camera Pose Estimation  —  Scene {scene_lbl}   |   Vainqueur : [{winner}]',
+        f'Camera Pose Estimation  —  Scene {scene_lbl}   |   Winner: [{winner}]',
         fontsize=13, fontweight='bold',
     )
 

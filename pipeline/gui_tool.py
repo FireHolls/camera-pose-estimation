@@ -14,25 +14,25 @@ sys.path.insert(0, TOOL_DIR)
 try:
     import customtkinter as ctk
 except ImportError:
-    print("customtkinter manquant.  Installez avec :  pip install customtkinter")
+    print("customtkinter missing.  Install with:  pip install customtkinter")
     sys.exit(1)
 
 import numpy as np
 import matplotlib as mpl
 mpl.rcParams.update({
-    'figure.facecolor': '#1e1e2e', 'axes.facecolor':  '#181825',
-    'axes.edgecolor':   '#45475a', 'axes.labelcolor': '#cdd6f4',
-    'xtick.color':      '#cdd6f4', 'ytick.color':     '#cdd6f4',
-    'text.color':       '#cdd6f4', 'grid.color':      '#313244',
-    'legend.facecolor': '#1e1e2e', 'legend.edgecolor': '#45475a',
-    'legend.labelcolor': '#cdd6f4',
+    'figure.facecolor': '#f4f4f4', 'axes.facecolor':  '#ffffff',
+    'axes.edgecolor':   '#cccccc', 'axes.labelcolor': '#1e1e2e',
+    'xtick.color':      '#1e1e2e', 'ytick.color':     '#1e1e2e',
+    'text.color':       '#1e1e2e', 'grid.color':      '#e0e0e0',
+    'legend.facecolor': '#f5f5f5', 'legend.edgecolor': '#cccccc',
+    'legend.labelcolor': '#1e1e2e',
 })
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from mpl_toolkits.mplot3d import Axes3D  # noqa
 
-from research_tool import Config, make_scene, run_pipeline, H_RATIO_THRESH
+from core import Config, make_scene, run_pipeline, run_noise_sweep, H_RATIO_THRESH
 from visualize3d import (
     _draw_3d, _draw_image_cam1,
     _draw_image_cam2_H, _draw_image_cam2_F, _draw_score_bar,
@@ -161,29 +161,8 @@ class SliderRow:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Fonctions de calcul (exécutées dans un thread)
+#  Application principale
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _noise_sweep(cfg):
-    levels, results = sorted(cfg.noise_levels), []
-    tmp = copy.copy(cfg)
-    for sigma in levels:
-        tmp.noise_sigma = sigma
-        scene = make_scene(tmp)
-        res   = run_pipeline(scene, tmp)
-        results.append({'sigma': sigma, **res})
-    return results
-
-
-def _montecarlo(cfg, progress_cb=None):
-    results = []
-    for i in range(cfg.mc_n):
-        scene = make_scene(cfg, seed_override=cfg.seed + i)
-        res   = run_pipeline(scene, cfg)
-        results.append(res)
-        if progress_cb:
-            progress_cb(i + 1, cfg.mc_n)
-    return results
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -242,13 +221,13 @@ class App(ctk.CTk):
                               text_color=TEXT)
         tabs.pack(fill='both', expand=True, padx=6, pady=8)
 
-        for t in ('Scene', 'Cameras', 'Optiques', 'Analyse'):
+        for t in ('Scene', 'Cameras', 'Optics', 'Analysis'):
             tabs.add(t)
 
         self._tab_scene(tabs.tab('Scene'))
         self._tab_cameras(tabs.tab('Cameras'))
-        self._tab_optics(tabs.tab('Optiques'))
-        self._tab_analyse(tabs.tab('Analyse'))
+        self._tab_optics(tabs.tab('Optics'))
+        self._tab_analyse(tabs.tab('Analysis'))
 
     # ── Tab Scene ─────────────────────────────────────────────────────────────
 
@@ -256,44 +235,56 @@ class App(ctk.CTk):
         tab.columnconfigure(1, weight=1)
         r = 0
 
-        _SectionTitle(tab, '  Type de scène').grid(
+        _SectionTitle(tab, '  Scene type').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(10, 2)); r += 1
 
-        self._scene_type_var = ctk.StringVar(value='Planaire')
+        self._scene_type_var = ctk.StringVar(value='Planar')
         seg = ctk.CTkSegmentedButton(
-            tab, values=['Planaire', 'Non-planaire', 'Custom'],
+            tab, values=['Planar', 'Non-planar'],
             variable=self._scene_type_var, font=FONT_NRM,
             selected_color=BLUE, selected_hover_color='#6ca0e8',
             command=self._on_scene_type)
         seg.grid(row=r, column=0, columnspan=2, sticky='ew',
                  padx=10, pady=4); r += 1
 
-        self._z_min = EntryRow(tab, 'Profondeur Z  (m)', 5.0, r); r += 1
-        self._z_max = EntryRow(tab, 'Z max  (m)', 7.0, r); r += 1
-        self._z_max.configure(state='disabled')
+        # Planaire : Z fixe
+        self._z_frame = ctk.CTkFrame(tab, fg_color='transparent')
+        self._z_frame.grid(row=r, column=0, columnspan=2, sticky='ew')
+        self._z_frame.columnconfigure(1, weight=1)
+        self._z_min = EntryRow(self._z_frame, 'Depth Z  (m)', 5.0, 0)
 
-        _SectionTitle(tab, '  Nuage de points').grid(
+        # Non-planar: Z min + Z max (hidden by default)
+        self._z_range_frame = ctk.CTkFrame(tab, fg_color='transparent')
+        self._z_range_frame.grid(row=r, column=0, columnspan=2, sticky='ew')
+        self._z_range_frame.columnconfigure(1, weight=1)
+        self._z_min_np = EntryRow(self._z_range_frame, 'Z min  (m)', 3.0, 0)
+        self._z_max_np = EntryRow(self._z_range_frame, 'Z max  (m)', 7.0, 1)
+        self._z_range_frame.grid_remove()
+        r += 1
+
+        _SectionTitle(tab, '  Point cloud').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(12, 2)); r += 1
 
-        self._x_range = EntryRow(tab, 'Étendue X  ±(m)', 2.0, r); r += 1
-        self._y_range = EntryRow(tab, 'Étendue Y  ±(m)', 1.5, r); r += 1
-        self._n_pts   = SliderRow(tab, 'Nombre de points',
+        self._x_range = EntryRow(tab, 'Range X  ±(m)', 2.0, r); r += 1
+        self._y_range = EntryRow(tab, 'Range Y  ±(m)', 1.5, r); r += 1
+        self._n_pts   = SliderRow(tab, 'Number of points',
                                    100, 8, 500, r, fmt='.0f', steps=492); r += 2
 
-        _SectionTitle(tab, '  Dégradation du signal').grid(
+        _SectionTitle(tab, '  Signal degradation').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(12, 2)); r += 1
 
-        self._noise = SliderRow(tab, 'Bruit pixel  σ (px)',
+        self._noise = SliderRow(tab, 'Pixel noise  σ (px)  [cam 1 & 2]',
                                  0.0, 0.0, 10.0, r, fmt='.2f'); r += 2
-        self._outl  = SliderRow(tab, 'Outliers  (%)',
+        self._outl  = SliderRow(tab, 'Outliers  (%)  [cam 2 only]',
                                  0.0, 0.0, 50.0, r, fmt='.1f'); r += 2
-        self._seed  = EntryRow(tab, 'Seed', 42, r); r += 1
 
     def _on_scene_type(self, val):
-        if val == 'Custom':
-            self._z_max.configure(state='normal')
+        if val == 'Planar':
+            self._z_frame.grid()
+            self._z_range_frame.grid_remove()
         else:
-            self._z_max.configure(state='disabled')
+            self._z_frame.grid_remove()
+            self._z_range_frame.grid()
 
     # ── Tab Cameras ───────────────────────────────────────────────────────────
 
@@ -301,7 +292,7 @@ class App(ctk.CTk):
         tab.columnconfigure(1, weight=1)
         r = 0
 
-        _SectionTitle(tab, '  Caméra 1  —  Référence').grid(
+        _SectionTitle(tab, '  Camera 1  —  Reference').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(10, 4)); r += 1
 
         self._c1_rot   = TriRow(tab, 'Rotation   rx ry rz', 0, 0, 0, r, 'deg'); r += 1
@@ -311,22 +302,21 @@ class App(ctk.CTk):
             row=r, column=0, columnspan=2, sticky='ew',
             padx=10, pady=10); r += 1
 
-        _SectionTitle(tab, '  Caméra 2').grid(
+        _SectionTitle(tab, '  Camera 2').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(2, 4)); r += 1
 
         self._c2_rot   = TriRow(tab, 'Rotation   rx ry rz', 0, 8, 0, r, 'deg'); r += 1
         self._c2_trans = TriRow(tab, 'Translation tx ty tz', 0.4, 0, 0, r, 'm'); r += 1
 
-        # Info box
         info = ctk.CTkTextbox(tab, height=70, font=FONT_SML,
                                fg_color=OVERLAY, text_color=SUBTEXT,
                                border_width=0, state='normal')
         info.grid(row=r, column=0, columnspan=2, sticky='ew',
                   padx=10, pady=(12, 4)); r += 1
         info.insert('1.0',
-            'Repère : X_cam = R @ X_world + t\n'
-            'R = Rz·Ry·Rx  (Euler extrinsèque, deg)\n'
-            'Cam 1 identité par défaut → référence mondiale')
+            'Frame: X_cam = R @ X_world + t\n'
+            'R = Rz·Ry·Rx  (extrinsic Euler, deg)\n'
+            'Cam 1 identity by default → world reference')
         info.configure(state='disabled')
 
     # ── Tab Optiques ──────────────────────────────────────────────────────────
@@ -335,23 +325,23 @@ class App(ctk.CTk):
         tab.columnconfigure(1, weight=1)
         r = 0
 
-        _SectionTitle(tab, '  Focales').grid(
+        _SectionTitle(tab, '  Focal lengths').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(10, 2)); r += 1
 
         self._fx = EntryRow(tab, 'fx  (px)', 1000, r); r += 1
         self._fy = EntryRow(tab, 'fy  (px)', 1000, r); r += 1
 
-        _SectionTitle(tab, '  Point principal').grid(
+        _SectionTitle(tab, '  Principal point').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(12, 2)); r += 1
 
         self._cx = EntryRow(tab, 'cx  (px)', 960, r); r += 1
         self._cy = EntryRow(tab, 'cy  (px)', 540, r); r += 1
 
-        _SectionTitle(tab, '  Résolution image').grid(
+        _SectionTitle(tab, '  Image resolution').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(12, 2)); r += 1
 
-        self._img_w = EntryRow(tab, 'Largeur  W  (px)', 1920, r); r += 1
-        self._img_h = EntryRow(tab, 'Hauteur  H  (px)', 1080, r); r += 1
+        self._img_w = EntryRow(tab, 'Width  W  (px)', 1920, r); r += 1
+        self._img_h = EntryRow(tab, 'Height  H  (px)', 1080, r); r += 1
 
         # FOV live display
         self._fov_label = ctk.CTkLabel(tab, text='', font=FONT_SML,
@@ -383,17 +373,17 @@ class App(ctk.CTk):
         tab.columnconfigure(1, weight=1)
         r = 0
 
-        _SectionTitle(tab, '  Méthodes').grid(
+        _SectionTitle(tab, '  Methods').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(10, 4)); r += 1
 
-        self._use_h = ctk.CTkSwitch(tab, text='Homographie H',
+        self._use_h = ctk.CTkSwitch(tab, text='Homography H',
                                      font=FONT_NRM, onvalue=1, offvalue=0,
                                      button_color=BLUE, progress_color=BLUE)
         self._use_h.select()
         self._use_h.grid(row=r, column=0, columnspan=2, sticky='w',
                           padx=10, pady=3); r += 1
 
-        self._use_f = ctk.CTkSwitch(tab, text='Matrice fondamentale F  (8 pts)',
+        self._use_f = ctk.CTkSwitch(tab, text='Fundamental matrix F  (8 pts)',
                                      font=FONT_NRM, onvalue=1, offvalue=0,
                                      button_color=BLUE, progress_color=BLUE)
         self._use_f.select()
@@ -403,23 +393,22 @@ class App(ctk.CTk):
         ctk.CTkFrame(tab, height=1, fg_color=OVERLAY).grid(
             row=r, column=0, columnspan=2, sticky='ew', padx=10, pady=10); r += 1
 
-        _SectionTitle(tab, "  Mode d'analyse").grid(
+        _SectionTitle(tab, '  Analysis mode').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(2, 4)); r += 1
 
-        self._mode_var = ctk.StringVar(value='Scene unique')
+        self._mode_var = ctk.StringVar(value='Single scene')
         mode_seg = ctk.CTkSegmentedButton(
-            tab, values=['Scene unique', 'Balayage bruit', 'Monte-Carlo'],
+            tab, values=['Single scene', 'Noise sweep'],
             variable=self._mode_var, font=FONT_NRM,
             selected_color=MAUVE, selected_hover_color='#b09bdf',
             command=self._on_mode)
         mode_seg.grid(row=r, column=0, columnspan=2, sticky='ew',
                       padx=10, pady=4); r += 1
 
-        # Noise sweep params
         self._noise_frame = ctk.CTkFrame(tab, fg_color='transparent')
         self._noise_frame.grid(row=r, column=0, columnspan=2, sticky='ew'); r += 1
         self._noise_frame.columnconfigure(1, weight=1)
-        ctk.CTkLabel(self._noise_frame, text='Niveaux σ  (espaces)',
+        ctk.CTkLabel(self._noise_frame, text='σ levels  (space-separated)',
                      font=FONT_NRM, anchor='w').grid(
             row=0, column=0, sticky='w', padx=(10, 4), pady=3)
         self._noise_levels_var = ctk.StringVar(value='0 0.5 1 2 3 5')
@@ -427,20 +416,12 @@ class App(ctk.CTk):
                      font=FONT_NRM).grid(row=0, column=1, sticky='ew',
                                           padx=(4, 10), pady=3)
 
-        # Monte-Carlo params
-        self._mc_frame = ctk.CTkFrame(tab, fg_color='transparent')
-        self._mc_frame.grid(row=r, column=0, columnspan=2, sticky='ew'); r += 1
-        self._mc_frame.columnconfigure(1, weight=1)
-        self._mc_n = SliderRow(self._mc_frame, 'Itérations N',
-                                50, 10, 500, 0, fmt='.0f', steps=490)
-
         self._noise_frame.grid_remove()
-        self._mc_frame.grid_remove()
 
         ctk.CTkFrame(tab, height=1, fg_color=OVERLAY).grid(
             row=r, column=0, columnspan=2, sticky='ew', padx=10, pady=10); r += 1
 
-        self._export = ctk.CTkSwitch(tab, text='Sauvegarder figure (PNG)',
+        self._export = ctk.CTkSwitch(tab, text='Save figure (PNG)',
                                       font=FONT_NRM, onvalue=1, offvalue=0,
                                       button_color=GREEN, progress_color=GREEN)
         self._export.grid(row=r, column=0, columnspan=2, sticky='w',
@@ -455,36 +436,36 @@ class App(ctk.CTk):
 
     def _on_mode(self, val):
         self._noise_frame.grid_remove()
-        self._mc_frame.grid_remove()
-        if val == 'Balayage bruit':
+        if val == 'Noise sweep':
             self._noise_frame.grid()
-        elif val == 'Monte-Carlo':
-            self._mc_frame.grid()
 
     # ── Canvas ────────────────────────────────────────────────────────────────
 
     def _build_canvas(self):
-        self._cv_frame = ctk.CTkFrame(self, corner_radius=0, fg_color=BG)
+        CANVAS_BG = '#f4f4f4'
+        TOOLBAR_BG = '#e8e8e8'
+
+        self._cv_frame = ctk.CTkFrame(self, corner_radius=0, fg_color=CANVAS_BG)
         self._cv_frame.grid(row=1, column=1, sticky='nsew')
         self._cv_frame.rowconfigure(1, weight=1)
         self._cv_frame.columnconfigure(0, weight=1)
 
         # Toolbar row
         self._tb_frame = ctk.CTkFrame(self._cv_frame, height=32,
-                                       corner_radius=0, fg_color='#11111b')
+                                       corner_radius=0, fg_color=TOOLBAR_BG)
         self._tb_frame.grid(row=0, column=0, sticky='ew')
 
         # Matplotlib figure
-        self._fig = Figure(facecolor='#1e1e2e')
+        self._fig = Figure(facecolor=CANVAS_BG)
         self._mpl_canvas = FigureCanvasTkAgg(self._fig, master=self._cv_frame)
         self._mpl_canvas.get_tk_widget().grid(row=1, column=0, sticky='nsew')
 
         self._toolbar = NavigationToolbar2Tk(
             self._mpl_canvas, self._tb_frame, pack_toolbar=False)
         try:
-            self._toolbar.config(background='#11111b')
+            self._toolbar.config(background=TOOLBAR_BG)
             for w in self._toolbar.winfo_children():
-                try: w.config(background='#11111b', foreground=TEXT)
+                try: w.config(background=TOOLBAR_BG, foreground='#1e1e2e')
                 except Exception: pass
         except Exception:
             pass
@@ -495,12 +476,13 @@ class App(ctk.CTk):
 
     def _show_placeholder(self):
         self._fig.clear()
+        self._fig.set_facecolor('#f4f4f4')
         ax = self._fig.add_subplot(111)
-        ax.set_facecolor('#181825')
+        ax.set_facecolor('#f4f4f4')
         ax.text(0.5, 0.52,
-                'Configurez les paramètres\net cliquez sur  Analyser',
+                'Configure parameters\nand click  Run',
                 ha='center', va='center', fontsize=17,
-                color='#45475a', transform=ax.transAxes,
+                color='#aaaaaa', transform=ax.transAxes,
                 fontfamily='Segoe UI')
         ax.axis('off')
         self._mpl_canvas.draw_idle()
@@ -514,14 +496,14 @@ class App(ctk.CTk):
         bar.columnconfigure(2, weight=1)
 
         self._run_btn = ctk.CTkButton(
-            bar, text='  Analyser', width=130, height=34,
+            bar, text='  Run', width=130, height=34,
             font=ctk.CTkFont(family='Segoe UI', size=13, weight='bold'),
             fg_color=BLUE, hover_color='#6ca0e8',
             command=self.on_run)
         self._run_btn.pack(side='left', padx=(14, 6), pady=7)
 
         ctk.CTkButton(
-            bar, text='Réinitialiser', width=120, height=34,
+            bar, text='Reset', width=120, height=34,
             font=FONT_NRM, fg_color=OVERLAY, hover_color='#585b70',
             command=self._reset).pack(side='left', padx=4, pady=7)
 
@@ -532,7 +514,7 @@ class App(ctk.CTk):
         self._prog.pack_forget()
 
         self._status = ctk.CTkLabel(
-            bar, text='Prêt.', font=FONT_SML,
+            bar, text='Ready.', font=FONT_SML,
             text_color=SUBTEXT, anchor='w')
         self._status.pack(side='left', padx=8, fill='x', expand=True)
 
@@ -541,16 +523,19 @@ class App(ctk.CTk):
     def _collect_config(self):
         cfg = Config()
 
-        st_map = {'Planaire': 'planar', 'Non-planaire': 'nonplanar', 'Custom': 'custom'}
-        cfg.scene_type    = st_map[self._scene_type_var.get()]
-        cfg.z_min         = self._z_min.get_float(5.0)
-        cfg.z_max         = self._z_max.get_float(7.0)
+        st_map = {'Planar': 'planar', 'Non-planar': 'nonplanar'}
+        cfg.scene_type = st_map[self._scene_type_var.get()]
+        if cfg.scene_type == 'planar':
+            cfg.z_min = self._z_min.get_float(5.0)
+        else:
+            cfg.z_min = self._z_min_np.get_float(3.0)
+            cfg.z_max = self._z_max_np.get_float(7.0)
         cfg.x_range       = self._x_range.get_float(2.0)
         cfg.y_range       = self._y_range.get_float(1.5)
         cfg.n_points      = self._n_pts.get_int()
         cfg.noise_sigma   = self._noise.get_float()
         cfg.outlier_ratio = self._outl.get_float() / 100.0
-        cfg.seed          = self._seed.get_int(42)
+        cfg.seed          = 42
 
         cfg.cam1_rx, cfg.cam1_ry, cfg.cam1_rz = self._c1_rot.get_floats()
         cfg.cam1_tx, cfg.cam1_ty, cfg.cam1_tz = self._c1_trans.get_floats()
@@ -567,9 +552,7 @@ class App(ctk.CTk):
         cfg.use_H = self._use_h.get() == 1
         cfg.use_F = self._use_f.get() == 1
 
-        mode_map = {'Scene unique': 'single',
-                    'Balayage bruit': 'noise_sweep',
-                    'Monte-Carlo': 'montecarlo'}
+        mode_map = {'Single scene': 'single', 'Noise sweep': 'noise_sweep'}
         cfg.mode = mode_map[self._mode_var.get()]
 
         try:
@@ -578,7 +561,6 @@ class App(ctk.CTk):
         except ValueError:
             pass
 
-        cfg.mc_n       = self._mc_n.get_int()
         cfg.export_png = self._export.get() == 1
         return cfg
 
@@ -589,14 +571,14 @@ class App(ctk.CTk):
             return
         cfg = self._collect_config()
         if not cfg.use_H and not cfg.use_F:
-            self._set_status('Activez au moins une méthode (H ou F).', RED)
+            self._set_status('Enable at least one method (H or F).', RED)
             return
 
         self._running = True
-        self._run_btn.configure(state='disabled', text='  Calcul…')
+        self._run_btn.configure(state='disabled', text='  Running…')
         self._prog.set(0)
         self._prog.pack(side='left', padx=14, pady=7)
-        self._set_status('Analyse en cours…', PEACH)
+        self._set_status('Analysis running…', PEACH)
 
         def thread():
             try:
@@ -606,23 +588,12 @@ class App(ctk.CTk):
                     self.after(0, lambda: self._show_single(scene, res, cfg))
 
                 elif cfg.mode == 'noise_sweep':
-                    data = _noise_sweep(cfg)
+                    data = run_noise_sweep(cfg)
                     self.after(0, lambda: self._show_noise(data, cfg))
-
-                elif cfg.mode == 'montecarlo':
-                    def _prog_cb(done, total):
-                        p = done / total
-                        self.after(0, lambda: (
-                            self._prog.set(p),
-                            self._set_status(
-                                f'Monte-Carlo : {done}/{total}…', PEACH)
-                        ))
-                    data = _montecarlo(cfg, _prog_cb)
-                    self.after(0, lambda: self._show_mc(data, cfg))
 
             except Exception as exc:
                 self.after(0, lambda e=exc:
-                           self._set_status(f'Erreur : {e}', RED))
+                           self._set_status(f'Error: {e}', RED))
             finally:
                 self.after(0, self._done)
 
@@ -630,7 +601,7 @@ class App(ctk.CTk):
 
     def _done(self):
         self._running = False
-        self._run_btn.configure(state='normal', text='  Analyser')
+        self._run_btn.configure(state='normal', text='  Run')
         self._prog.pack_forget()
 
     def _set_status(self, msg, color=SUBTEXT):
@@ -639,22 +610,32 @@ class App(ctk.CTk):
     # ── Plots ─────────────────────────────────────────────────────────────────
 
     def _style_ax2d(self, ax):
-        ax.set_facecolor('#181825')
+        ax.set_facecolor('#ffffff')
+
+    def _polish_ax2d(self, ax):
+        pass  # rcParams clairs gèrent tout
 
     def _style_ax3d(self, ax):
-        ax.set_facecolor('#181825')
         for pane in [ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane]:
-            pane.fill = False
-            pane.set_edgecolor('#45475a')
-        ax.grid(True, color='#313244', alpha=0.5)
+            pane.fill = True
+            pane.set_facecolor('#efefef')
+            pane.set_edgecolor('#cccccc')
+        ax.grid(True, color='#dddddd', alpha=1.0)
+
+    def _polish_ax3d(self, ax):
+        pass  # rcParams clairs gèrent tout
 
     def _show_single(self, scene, res, cfg):
         self._fig.clear()
+        self._fig.set_facecolor('#f4f4f4')
         gs = self._fig.add_gridspec(
-            4, 2, width_ratios=[2.2, 1.0],
+            4, 2, width_ratios=[1.7, 1.0],
             height_ratios=[1, 1, 1, 1],
-            hspace=0.60, wspace=0.28,
+            hspace=0.38, wspace=0.18,
         )
+        self._fig.subplots_adjust(
+            top=0.95, bottom=0.04, left=0.04, right=0.99)
+
         ax3d   = self._fig.add_subplot(gs[:, 0], projection='3d')
         ax_c1  = self._fig.add_subplot(gs[0, 1])
         ax_c2h = self._fig.add_subplot(gs[1, 1])
@@ -679,17 +660,20 @@ class App(ctk.CTk):
         _draw_score_bar(ax_bar, res['S_H'] or 0, res['S_F'] or 0,
                         win, res['ratio'] or 0, H_RATIO_THRESH)
 
-        scene_lbl = 'Planaire' if cfg.scene_type == 'planar' else 'Non-planaire'
+        self._polish_ax3d(ax3d)
+        for ax in [ax_c1, ax_c2h, ax_c2f, ax_bar]:
+            self._polish_ax2d(ax)
+
+        scene_lbl = 'Planar' if cfg.scene_type == 'planar' else 'Non-planar'
         self._fig.suptitle(
-            f'Scène {scene_lbl}  ·  {res["n_visible"]} pts visibles  ·  '
-            f'Vainqueur [{win}]',
-            fontsize=12, fontweight='bold', color=TEXT, y=0.995)
+            f'Scene {scene_lbl}  ·  {res["n_visible"]} visible pts  ·  '
+            f'Winner [{win}]',
+            fontsize=12, fontweight='bold', color='#1e1e2e', y=0.995)
 
         self._mpl_canvas.draw_idle()
         self._export_if_needed(cfg, 'single')
 
-        # Results card
-        lines = [f'Points visibles : {res["n_visible"]}']
+        lines = [f'Visible points: {res["n_visible"]}']
         if res['S_H'] is not None:
             lines.append(
                 f'H  →  Err R = {res["err_R_H"]:.3f}°  '
@@ -702,13 +686,15 @@ class App(ctk.CTk):
             lines.append(f'Ratio = {res["ratio"]:.3f}  →  [{win}]')
         self._update_res_box('\n'.join(lines))
         self._set_status(
-            f'Analyse terminée  ·  {res["n_visible"]} pts  ·  [{win}]', GREEN)
+            f'Analysis done  ·  {res["n_visible"]} pts  ·  [{win}]', GREEN)
 
     def _show_noise(self, data, cfg):
         self._fig.clear()
+        self._fig.set_facecolor('#f4f4f4')
         fig = self._fig
 
-        gs = fig.add_gridspec(1, 2, hspace=0.3, wspace=0.35)
+        gs = fig.add_gridspec(1, 2, hspace=0.1, wspace=0.25)
+        fig.subplots_adjust(top=0.92, bottom=0.10, left=0.08, right=0.98)
         ax1 = fig.add_subplot(gs[0, 0])
         ax2 = fig.add_subplot(gs[0, 1])
         self._style_ax2d(ax1)
@@ -719,9 +705,9 @@ class App(ctk.CTk):
 
         for ax, key_H, key_F, ylabel, title in [
             (ax1, 'err_R_H', 'err_R_F',
-             'Erreur rotation (°)', 'Rotation'),
+             'Rotation error (°)', 'Rotation'),
             (ax2, 'err_t_H', 'err_t_F',
-             'Erreur direction t (°)', 'Translation'),
+             'Translation direction error (°)', 'Translation'),
         ]:
             if cfg.use_H:
                 ax.plot(levels, [d[key_H] for d in data],
@@ -731,77 +717,20 @@ class App(ctk.CTk):
                         's-', color=F_C, lw=2, ms=6, label='F')
             ax.set_xlabel('σ  (px)')
             ax.set_ylabel(ylabel)
-            ax.set_title(title, color=TEXT)
+            ax.set_title(title)
             ax.legend()
-            ax.grid(True, alpha=0.25)
 
-        fig.suptitle('Robustesse au bruit', fontsize=13,
-                     fontweight='bold', color=TEXT)
+        for ax in [ax1, ax2]:
+            self._polish_ax2d(ax)
+
+        fig.suptitle('Noise robustness', fontsize=13,
+                     fontweight='bold', color='#1e1e2e')
         self._mpl_canvas.draw_idle()
         self._export_if_needed(cfg, 'noise_sweep')
         self._update_res_box(
-            f'Balayage : {len(levels)} niveaux\n'
-            f'σ de {min(levels):.1f} à {max(levels):.1f} px')
-        self._set_status('Balayage bruit terminé.', GREEN)
-
-    def _show_mc(self, data, cfg):
-        self._fig.clear()
-        fig = self._fig
-
-        gs = fig.add_gridspec(1, 2, hspace=0.3, wspace=0.35)
-        ax1 = fig.add_subplot(gs[0, 0])
-        ax2 = fig.add_subplot(gs[0, 1])
-        self._style_ax2d(ax1)
-        self._style_ax2d(ax2)
-
-        H_C, F_C = '#fab387', '#f38ba8'
-
-        def _cl(arr):
-            a = np.array(arr, dtype=float)
-            return a[~np.isnan(a)]
-
-        lines = [f'Monte-Carlo : {len(data)} scènes']
-
-        for ax, kH, kF, ylabel, title in [
-            (ax1, 'err_R_H', 'err_R_F',
-             'Erreur rotation (°)', 'Rotation'),
-            (ax2, 'err_t_H', 'err_t_F',
-             'Erreur direction t (°)', 'Translation'),
-        ]:
-            boxes, labels, colors = [], [], []
-            if cfg.use_H:
-                d = _cl([r[kH] for r in data])
-                if len(d):
-                    boxes.append(d); labels.append('H'); colors.append(H_C)
-                    lines.append(
-                        f'{kH}: μ={d.mean():.3f}°  σ={d.std():.3f}°')
-            if cfg.use_F:
-                d = _cl([r[kF] for r in data])
-                if len(d):
-                    boxes.append(d); labels.append('F'); colors.append(F_C)
-                    lines.append(
-                        f'{kF}: μ={d.mean():.3f}°  σ={d.std():.3f}°')
-            if boxes:
-                bp = ax.boxplot(boxes, patch_artist=True, widths=0.45,
-                                medianprops=dict(color='white', lw=2))
-                for patch, col in zip(bp['boxes'], colors):
-                    patch.set_facecolor(col)
-                    patch.set_alpha(0.75)
-                for el in ['whiskers', 'caps', 'fliers']:
-                    for item in bp[el]:
-                        item.set_color('#585b70')
-            ax.set_xticks(range(1, len(labels) + 1))
-            ax.set_xticklabels(labels)
-            ax.set_ylabel(ylabel)
-            ax.set_title(title, color=TEXT)
-            ax.grid(True, axis='y', alpha=0.25)
-
-        fig.suptitle(f'Monte-Carlo  ({len(data)} scènes)',
-                     fontsize=13, fontweight='bold', color=TEXT)
-        self._mpl_canvas.draw_idle()
-        self._export_if_needed(cfg, 'montecarlo')
-        self._update_res_box('\n'.join(lines))
-        self._set_status(f'Monte-Carlo terminé  ·  {len(data)} scènes.', GREEN)
+            f'Sweep: {len(levels)} levels\n'
+            f'σ from {min(levels):.1f} to {max(levels):.1f} px')
+        self._set_status('Noise sweep done.', GREEN)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -815,23 +744,26 @@ class App(ctk.CTk):
         if not cfg.export_png:
             return
         from datetime import datetime
+        export_dir = os.path.join(TOOL_DIR, 'exports')
+        os.makedirs(export_dir, exist_ok=True)
         ts  = datetime.now().strftime('%Y%m%d_%H%M%S')
-        out = os.path.join(TOOL_DIR, f'result_{suffix}_{ts}.png')
+        out = os.path.join(export_dir, f'result_{suffix}_{ts}.png')
         self._fig.savefig(out, dpi=150, bbox_inches='tight',
                           facecolor=self._fig.get_facecolor())
-        self._set_status(f'Figure sauvegardée : {os.path.basename(out)}', TEAL)
+        self._set_status(f'Figure saved: exports/{os.path.basename(out)}', TEAL)
 
     def _reset(self):
         defaults = Config()
-        self._scene_type_var.set('Planaire')
+        self._scene_type_var.set('Planar')
         self._z_min.set(defaults.z_min)
-        self._z_max.set(defaults.z_max)
+        self._z_min_np.set(3.0)
+        self._z_max_np.set(7.0)
+        self._on_scene_type('Planar')
         self._x_range.set(defaults.x_range)
         self._y_range.set(defaults.y_range)
         self._n_pts.set(defaults.n_points)
         self._noise.set(defaults.noise_sigma)
         self._outl.set(defaults.outlier_ratio * 100)
-        self._seed.set(defaults.seed)
         self._c1_rot.set(defaults.cam1_rx, defaults.cam1_ry, defaults.cam1_rz)
         self._c1_trans.set(defaults.cam1_tx, defaults.cam1_ty, defaults.cam1_tz)
         self._c2_rot.set(defaults.cam2_rx, defaults.cam2_ry, defaults.cam2_rz)
@@ -840,11 +772,12 @@ class App(ctk.CTk):
         self._cx.set(defaults.cx); self._cy.set(defaults.cy)
         self._img_w.set(defaults.img_w); self._img_h.set(defaults.img_h)
         self._use_h.select(); self._use_f.select()
-        self._mode_var.set('Scene unique')
-        self._on_mode('Scene unique')
+        self._noise_levels_var.set('0 0.5 1 2 3 5')
+        self._mode_var.set('Single scene')
+        self._on_mode('Single scene')
         self._update_fov()
         self._show_placeholder()
-        self._set_status('Paramètres réinitialisés.', SUBTEXT)
+        self._set_status('Parameters reset.', SUBTEXT)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
