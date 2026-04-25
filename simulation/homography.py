@@ -106,26 +106,36 @@ def _normalize_2d(points_2d):
     return pts_norm[:2], T
 
 
-def decompose_H(H, K, X_ref=None):
+def decompose_H(H, K1, K2=None, plane_dist=None, X_ref=None):
     """
-    Extracts R and t from the homography H = K [r1 | r2 | t].
+    Extracts relative rotation R and translation t between two cameras from
+    a homography H estimated between their two image planes (pixel → pixel).
 
-      [r1 | r2 | t] = λ · K⁻¹ · H
-      λ = mean(‖K⁻¹h1=r1‖, ‖K⁻¹h2=r2‖)   to normalize r1 and r2 to unit norm
-      r3 = r1 × r2
-      R = projection onto SO(3) via SVD of [r1|r2|r3]
+    For a planar scene at depth d in camera 1's frame, with plane normal n = (0,0,1):
+      H12 = K2 (R_rel + t_rel nᵀ / d) K1⁻¹
+      B = K2⁻¹ H12 K1 = λ [R_rel[:,0] | R_rel[:,1] | R_rel[:,2] + t_rel/d]
 
-    H      : (3, 3) ndarray — estimated homography
-    K      : (3, 3) ndarray — intrinsic camera matrix
-    X_ref  : (3,)   ndarray — reference 3D point to resolve sign ambiguity
-                              (point must be visible, i.e. in front of the camera)
+    r1 = B[:,0]/λ,  r2 = B[:,1]/λ,  r3 = r1 × r2
+    R_rel = projection of [r1|r2|r3] onto SO(3) via SVD
+    t_rel/d = B[:,2]/λ − R_rel[:,2]
+
+    H          : (3, 3) — estimated homography (camera1 pixels → camera2 pixels)
+    K1         : (3, 3) — intrinsics of camera 1
+    K2         : (3, 3) — intrinsics of camera 2 (default: same as K1)
+    plane_dist : float  — depth of the plane in camera 1's frame (= distance from
+                          cam1 to the plane). If given, returns absolute t_rel.
+                          If None, returns unit translation direction.
+    X_ref      : (3,)   — world reference point for chirality check (must be visible
+                          in both cameras, i.e. positive depth in both frames)
 
     Returns
-    R : (3, 3) ndarray — estimated rotation
-    t : (3,)   ndarray — estimated translation
+    R : (3, 3) — relative rotation  R_rel = R2 @ R1ᵀ
+    t : (3,)   — relative translation (absolute if plane_dist given, unit vector otherwise)
     """
-    K_inv = np.linalg.inv(K)
-    B = K_inv @ H          # B = λ [r1 | r2 | t]
+    if K2 is None:
+        K2 = K1
+
+    B = np.linalg.inv(K2) @ H @ K1   # λ [r1 | r2 | r3 + t_rel/d]
 
     lam = (np.linalg.norm(B[:, 0]) + np.linalg.norm(B[:, 1])) / 2
 
@@ -134,18 +144,23 @@ def decompose_H(H, K, X_ref=None):
         r1 = B[:, 0] / l
         r2 = B[:, 1] / l
         r3 = np.cross(r1, r2)
-        t_ = B[:, 2] / l
         R_approx = np.column_stack([r1, r2, r3])
         U, _, Vt = np.linalg.svd(R_approx)
         R_ = U @ Vt
         if np.linalg.det(R_) < 0:
             Vt[-1, :] *= -1
             R_ = U @ Vt
+        t_dir = B[:, 2] / l - R_[:, 2]          # = t_rel / d  (up to scale)
+        if plane_dist is not None:
+            t_ = plane_dist * t_dir
+        else:
+            n = np.linalg.norm(t_dir)
+            t_ = t_dir / n if n > 1e-10 else t_dir
         return R_, t_
 
     R, t = _from_lambda(+1)
 
-    # Chirality: H is defined up to ±1, pick the sign such that the reference point is in front of the camera (Z_cam > 0)
+    # H is defined up to ±1 — pick the sign such that X_ref is in front of camera 2
     if X_ref is not None:
         if (R @ X_ref + t)[2] < 0:
             R, t = _from_lambda(-1)
