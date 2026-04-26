@@ -20,6 +20,8 @@ class RANSAC_F:
         else:
             N = math.log(1 - p)/math.log(1 - (1 - self.epsilon)**self.s)
             self.N = int(math.ceil(N))
+
+            
     
     def random_samples(self):
         n = self.px1.shape[1]
@@ -32,14 +34,15 @@ class RANSAC_F:
         return sample_px1, sample_px2
 
     def execute_RANSAC(self):
+        self.sample_size()
         for i in range(self.N):
-            sample_px1, sample_px2 = self.random_samples(self)
+            sample_px1, sample_px2 = self.random_samples()
             eight_point_input = (sample_px1.T, sample_px2.T)
             F_candidate = self.eigh_points(*eight_point_input)
-            if F_candidate == None:
+            if F_candidate is None:
                 continue
             current_score, current_mask = score_F(F_candidate, self.px1, self.px2, threshold=3.84)
-            if current_score <self.best_score:
+            if current_score >self.best_score:
                 self.best_score = current_score
                 self.best_F = F_candidate
                 self.best_mask = current_mask
@@ -49,6 +52,8 @@ class RANSAC_F:
             
         inlier_px1 = self.px1[:, self.best_mask]
         inlier_px2 = self.px2[:, self.best_mask]
+        inlier_px1 = np.vstack((inlier_px1, np.ones((1, inlier_px1.shape[1]))))
+        inlier_px2 = np.vstack((inlier_px2, np.ones((1, inlier_px1.shape[1]))))
         
         final_input = (inlier_px1.T, inlier_px2.T)
         final_F = self.eigh_points(*final_input)
