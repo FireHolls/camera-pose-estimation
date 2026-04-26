@@ -1,4 +1,6 @@
 import numpy as np
+from eight_points.triangulation import triangulate
+from simulation.projection import project_points
 
 def get_R_t_from_epipolar(F, K = None):
     """
@@ -57,11 +59,54 @@ def P_estimation(t, R1, R2, K, s = None):
     """
     if s is None:
         s = 1
+        
     P_est1 = K@np.hstack((R1, s*t)) # Rotation 1, Positive translation
     P_est2 = K@np.hstack((R1, -s*t)) # Rotation 1, Negative translation
     P_est3 = K@np.hstack((R2, s*t)) # Rotation 2, Positive translation
     P_est4 = K@np.hstack((R2, -s*t)) # Rotation 2, Negative translation
-
     # Stacking all the possible projection matrices
     P_est = np.stack([P_est1, P_est2, P_est3, P_est4])
     return P_est
+
+def parallax(P2_all, K, pt1, pt2):
+    R1 = np.eye(3)
+    t1 = np.zeros((3,1))
+    P1 = K@np.hstack((R1, t1))
+    K_inv = np.linalg.inv(K)
+    best_R2 = None
+    best_t2 = None
+    best_P2 = None
+    max_positive_depths = -1
+    for i in range(4):
+        P2 = P2_all[i,:,:]
+        pt3D = triangulate(P1, P2, pt1, pt2)
+        P2_noK = K_inv@P2
+        R2 = P2_noK[:, :3]
+        t2 = P2_noK[:, 3].reshape(3, 1)
+        _, d1 = project_points(pt3D.T, K, R1, t1)
+        _, d2 = project_points(pt3D.T, K, R2, t2)
+        valid_mask = (d1 > 0) & (d2 > 0)
+        valid_count = np.sum(valid_mask)
+        if valid_count > max_positive_depths:
+            max_positive_depths = valid_count
+            best_R2 = R2
+            best_t2 = t2
+            best_P2 = P2
+    print(max_positive_depths)
+    return best_R2, best_t2, best_P2
+
+def find_scaling_factor(P2, K, pts1, pts2, pts3D):
+    P1 = K@np.hstack((np.eye(3), np.zeros((3, 1))))
+    pts3D_triag = triangulate(P1, P2, pts1.T, pts2.T)
+    scale = []
+    for i in range(4):
+        for j in range(i):
+            dist_truth = np.linalg.norm(pts3D[:,i] - pts3D[:,j])
+            dist_triag = np.linalg.norm(pts3D_triag[i, :] - pts3D_triag[j, :])
+            s_f = dist_truth / dist_triag
+            scale.append(s_f)
+    s = np.median(scale)
+    return s
+
+
+
