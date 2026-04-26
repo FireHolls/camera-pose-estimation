@@ -16,6 +16,7 @@ def normalize(points):
     shifted_points = points[:, :2] - centroid
     d_avg = np.mean(np.sqrt(shifted_points[:, 0]**2 + shifted_points[:, 1]**2))
     if d_avg == 0:
+        T = np.eye(3)
         raise ValueError("All points are identical; normalization is undefined.")
     s = math.sqrt(2)/d_avg #Scaling factor
     T = np.array([
