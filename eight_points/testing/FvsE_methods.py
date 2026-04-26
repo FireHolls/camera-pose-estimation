@@ -14,7 +14,7 @@ from plot_fct import plot_points
 import matplotlib.pyplot as plt
 
 # 1 Génération de la scène 
-bounds = np.array([-2.0, 2.0, -1.5, 1.5, 4.0, 10.0])
+bounds = np.array([-2.0, 2.0, -1.5, 1.5, 10, 20])
 pts3d  = PointsGenerator(nbPoints=50, seed=43, bounds=bounds)
 
 # 2 Définition des caméras 
@@ -43,7 +43,7 @@ tf, R_1f, R_2f = get_R_t_from_epipolar(F, K = K)
 
 #7 Estrimate the projection matrix
 P_estf = P_estimation(tf, R_1f, R_2f, K) # First method
-R2_hat, t2_norm, P2_norm = parallax(P_estf, K, points1.T, points1.T)
+R2_hat, t2_norm, P2_norm = parallax(P_estf, K, points1.T, points2.T)
 s = find_scaling_factor(P2_norm, K, points1, points2, pts3d_vis)
 t2_hat = s*t2_norm
 P2 = K @ np.hstack((R2_hat, t2_hat))
@@ -69,7 +69,7 @@ for sigma in sigmas:
     tf, R_1f, R_2f = get_R_t_from_epipolar(F_n, K = K) 
     
     P_estf_n = P_estimation(tf, R_1f, R_2f, K) # First method
-    R2_hat, t2_norm, P2_norm = parallax(P_estf_n, K, points1.T, points1.T)
+    R2_hat, t2_norm, P2_norm = parallax(P_estf_n, K, points1.T, points2.T)
     s = find_scaling_factor(P2_norm, K, points1, points2, pts3d_vis)
     print(s)
     t2_hat = s*t2_norm
