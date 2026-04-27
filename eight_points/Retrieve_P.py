@@ -83,8 +83,8 @@ def parallax(P2_all, K, pt1, pt2):
         P2_noK = K_inv@P2
         R2 = P2_noK[:, :3]
         t2 = P2_noK[:, 3].reshape(3, 1)
-        _, d1 = project_points(pt3D.T, K, R1, t1)
-        _, d2 = project_points(pt3D.T, K, R2, t2)
+        _, d1 = project_points(pt3D, K, R1, t1)
+        _, d2 = project_points(pt3D, K, R2, t2)
         valid_mask = (d1 > 0) & (d2 > 0)
         valid_count = np.sum(valid_mask)
         if valid_count > max_positive_depths:
@@ -97,12 +97,12 @@ def parallax(P2_all, K, pt1, pt2):
 
 def find_scaling_factor(P2, K, pts1, pts2, pts3D):
     P1 = K@np.hstack((np.eye(3), np.zeros((3, 1))))
-    pts3D_triag = triangulate(P1, P2, pts1.T, pts2.T)
+    pts3D_triag = triangulate(P1, P2, pts1, pts2)
     scale = []
     for i in range(4):
         for j in range(i):
             dist_truth = np.linalg.norm(pts3D[:,i] - pts3D[:,j])
-            dist_triag = np.linalg.norm(pts3D_triag[i, :] - pts3D_triag[j, :])
+            dist_triag = np.linalg.norm(pts3D_triag[:, i] - pts3D_triag[:, j])
             s_f = dist_truth / dist_triag
             scale.append(s_f)
     s = np.median(scale)

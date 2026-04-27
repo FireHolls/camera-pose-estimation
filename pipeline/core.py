@@ -202,8 +202,8 @@ def run_pipeline(scene, cfg):
 
     if cfg.use_F and M >= 8:
         try:
-            pts1h = np.vstack([px1, np.ones((1, M))]).T
-            pts2h = np.vstack([px2, np.ones((1, M))]).T
+            pts1h = np.vstack([px1, np.ones((1, M))])
+            pts2h = np.vstack([px2, np.ones((1, M))])
             F     = eight_point(pts1h, pts2h)
             S_F   = score_F(F, px1, px2)
             with contextlib.redirect_stdout(io.StringIO()):

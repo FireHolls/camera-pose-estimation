@@ -37,7 +37,7 @@ class RANSAC_F:
         self.sample_size()
         for i in range(self.N):
             sample_px1, sample_px2 = self.random_samples()
-            eight_point_input = (sample_px1.T, sample_px2.T)
+            eight_point_input = (sample_px1, sample_px2)
             F_candidate = self.eigh_points(*eight_point_input)
             if F_candidate is None:
                 continue
@@ -55,7 +55,7 @@ class RANSAC_F:
         inlier_px1 = np.vstack((inlier_px1, np.ones((1, inlier_px1.shape[1]))))
         inlier_px2 = np.vstack((inlier_px2, np.ones((1, inlier_px1.shape[1]))))
         
-        final_input = (inlier_px1.T, inlier_px2.T)
+        final_input = (inlier_px1, inlier_px2)
         final_F = self.eigh_points(*final_input)
         
         if final_F is not None:
