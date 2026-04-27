@@ -1,14 +1,15 @@
 import numpy as np
 import math
 
-class RANSAC_F:
-    def __init__(self, s, epsilon, eight_points, px1, px2):
+class RANSAC:
+    def __init__(self, s, epsilon, score_fct, model_fct, px1, px2):
         self.s = s #Number of sample points
         self.epsilon = epsilon #Proportion of outliers
-        self.eigh_points = eight_points
+        self.score_fct = score_fct
+        self.model_fct = model_fct
         self.px1 = px1
         self.px2 = px2
-        self.best_F = None
+        self.best_model = None
         self.best_score = -1
         self.N = None
         self.best_mask = None
@@ -20,48 +21,43 @@ class RANSAC_F:
         else:
             N = math.log(1 - p)/math.log(1 - (1 - self.epsilon)**self.s)
             self.N = int(math.ceil(N))
-
-            
     
     def random_samples(self):
         n = self.px1.shape[1]
         idx = np.random.choice(n, self.s, replace=False)
         sample_px1 = self.px1[:, idx]
         sample_px2 = self.px2[:, idx]
-        if sample_px1.shape[0] != 3:
-            sample_px1 = np.vstack((sample_px1, np.ones((1, self.s))))
-            sample_px2 = np.vstack((sample_px2, np.ones((1, self.s))))
         return sample_px1, sample_px2
 
     def execute_RANSAC(self):
         self.sample_size()
         for i in range(self.N):
             sample_px1, sample_px2 = self.random_samples()
-            eight_point_input = (sample_px1.T, sample_px2.T)
-            F_candidate = self.eigh_points(*eight_point_input)
-            if F_candidate is None:
+            model_fct_input = (sample_px1, sample_px2)
+            candidate = self.model_fct(*model_fct_input)
+            if candidate is None:
                 continue
-            current_score, current_mask = score_F(F_candidate, self.px1, self.px2, threshold=3.84)
+            score_fct_input = (candidate, self.px1, self.px2)
+            current_score, current_mask = self.score_fct(*score_fct_input)
             if current_score >self.best_score:
                 self.best_score = current_score
-                self.best_F = F_candidate
+                self.best_model = candidate
                 self.best_mask = current_mask
         if self.best_mask is None or np.sum(self.best_mask) < 8:
             print("Warning: RANSAC failed to find enough inliers.")
-            return self.best_F, self.best_mask 
+            return self.best_model, self.best_mask 
             
         inlier_px1 = self.px1[:, self.best_mask]
         inlier_px2 = self.px2[:, self.best_mask]
-        inlier_px1 = np.vstack((inlier_px1, np.ones((1, inlier_px1.shape[1]))))
-        inlier_px2 = np.vstack((inlier_px2, np.ones((1, inlier_px1.shape[1]))))
         
-        final_input = (inlier_px1.T, inlier_px2.T)
-        final_F = self.eigh_points(*final_input)
+        final_input = (inlier_px1, inlier_px2)
+        final_model = self.model_fct(*final_input)
         
-        if final_F is not None:
-            self.best_F = final_F
+        if final_model is not None:
+            self.best_model = final_model
             
-        return self.best_F, self.best_mask
+        return self.best_model, self.best_mask
+    
 
 def score_F(F, px1, px2, threshold=3.84):
     """
@@ -91,5 +87,40 @@ def score_F(F, px1, px2, threshold=3.84):
     score = float(np.sum(np.maximum(0, threshold - d_samp)))
     inlier_mask = d_samp < threshold
     return score, inlier_mask
+
+def score_H(H, px1, px2, threshold=5.99):
+    """
+    Symmetric transfer error score for homography H (ORB-SLAM style).
+
+    For each correspondence, measures how well H maps px1→px2 AND H⁻¹ maps px2→px1.
+    Points with error > threshold are considered outliers and contribute 0.
+
+      S_H = Σ [ max(0, T - d²(H·x1, x2)) + max(0, T - d²(H⁻¹·x2, x1)) ]
+
+    threshold : chi² at 95% for 2 DOF = 5.99  (transfer error is a 2D residual)
+
+    Returns: float  (higher = better fit)
+    """
+    N = px1.shape[1]
+    h1 = np.vstack([px1, np.ones((1, N))])   # (3, N)
+    h2 = np.vstack([px2, np.ones((1, N))])   # (3, N)
+
+    # Forward: H · px1 → px2
+    p12 = H @ h1
+    p12 = p12[:2] / p12[2]
+    d12 = np.sum((p12 - px2) ** 2, axis=0)
+
+    # Backward: H⁻¹ · px2 → px1
+    p21 = np.linalg.inv(H) @ h2
+    p21 = p21[:2] / p21[2]
+    d21 = np.sum((p21 - px1) ** 2, axis=0)
+
+    score_forward = np.maximum(0, threshold - d12)
+    score_backward = np.maximum(0, threshold - d21)
+    total_score = float(np.sum(score_forward + score_backward))
+
+    inliers = (d12 < threshold) & (d21 < threshold)
+    
+    return total_score, inliers
 
         

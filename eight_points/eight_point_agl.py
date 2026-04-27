@@ -8,15 +8,15 @@ def normalize(points):
     This function normalizes the set of points before applying DLT and 8-point algorithm
     to improve the accuracy.
     Input:
-        - points: The set of 2D points (N, 3) - np.array
+        - points: The set of 2D points (3, N) - np.array
     Output:
         - T: Normalization matrix of size 3x3 (np.array)
     """
-    N = points.shape[0]
-    centroid = 1/N * np.sum(points[:, :2], axis=0) #Calculate centroid
+    N = points.shape[1]
+    centroid = 1/N * np.sum(points[:2, :], axis=1) #Calculate centroid
     # Calculate shifted points 
-    shifted_points = points[:, :2] - centroid
-    d_avg = np.mean(np.sqrt(shifted_points[:, 0]**2 + shifted_points[:, 1]**2))
+    shifted_points = points[:2, :] - centroid.reshape(2, 1)
+    d_avg = np.mean(np.sqrt(shifted_points[0, :]**2 + shifted_points[1, :]**2))
     if d_avg == 0:
         raise ValueError("All points are identical; normalization is undefined.")
     s = math.sqrt(2)/d_avg #Scaling factor
@@ -32,25 +32,25 @@ def linear_eq(points1, points2):
     Function to construct the matrix A used to solve the epipolar constraint equation x'TFx = 0, 
     where Af = 0
     Input:
-        - points1: 2Dpoints of the first image (np.array of size Nx2 or Nx3)
-        - points2: 2Dpoints of the second image (np.array of size Nx2 or Nx3)
+        - points1: 2Dpoints of the first image (np.array of size 2xN or 3xN)
+        - points2: 2Dpoints of the second image (np.array of size 2xN or 3xN)
     Output:
         - A: The linear system equation (np.array of size Nx9)
     """
     # Determine the number of point correspondences
-    length = min(points1.shape[0], points2.shape[0])
+    length = min(points1.shape[1], points2.shape[1])
     
     # Initialize the design matrix A (N x 9) for the equation Af = 0
     A = np.zeros((length, 9))
     for i in range(length):
-        A[i, 0] = points2[i, 0]*points1[i, 0]
-        A[i, 1] = points2[i, 0]*points1[i, 1]
-        A[i, 2] = points2[i, 0]
-        A[i, 3] = points2[i, 1]*points1[i, 0]
-        A[i, 4] = points2[i, 1]*points1[i, 1]
-        A[i, 5] = points2[i, 1]
-        A[i, 6] = points1[i, 0]
-        A[i, 7] = points1[i, 1]
+        A[i, 0] = points2[0, i]*points1[0, i]
+        A[i, 1] = points2[0, i]*points1[1, i]
+        A[i, 2] = points2[0, i]
+        A[i, 3] = points2[1, i]*points1[0, i]
+        A[i, 4] = points2[1, i]*points1[1, i]
+        A[i, 5] = points2[1, i]
+        A[i, 6] = points1[0, i]
+        A[i, 7] = points1[1, i]
         A[i, 8] = 1
     return A
 
@@ -59,33 +59,31 @@ def eight_point(pts1, pts2, K1 = None, K2 = None):
     Function to execute the normalized 8-points algorithm to determine the fundamental matrix F or 
     the essential matrix if K1 and K2 are not None. 
     Input:
-        - pts1: 2D homogenous points of the first image - pixel coordinates (np.array of size Nx3)
-        - pts2: 2D homogenous points of the second image - pixel coordinates (np.array of size Nx3)
+        - pts1: 2D homogenous points of the first image - pixel coordinates (np.array of size 2xN)
+        - pts2: 2D homogenous points of the second image - pixel coordinates (np.array of size 2xN)
         - K1: Intrinsic parameter of the first camera (np.array of size 3x3) - optional
         - K2: Intrinsic parameter of the second camera (np.array of size 3x3) - optional
     Output:
         - F: Fundamental matrix (np.array 3x3) OR if K1 and K2 are not None: Essential matrix
     """
-    points1 = pts1.copy()
-    points2 = pts2.copy()
+    points1 = np.vstack((pts1, np.ones((1, pts1.shape[1]))))
+    points2 = np.vstack((pts2, np.ones((1, pts2.shape[1]))))
     # Function computes the essential matrix instead of the fundamental matrix
     if K1 is not None and K2 is not None: 
         K1_inv = np.linalg.inv(K1)
         K2_inv = np.linalg.inv(K2)
-        points1 = K1_inv@points1.T # Convert the points from the image frame to the camera frame
-        points1 = points1.T
-        points2 = K2_inv@points2.T
-        points2 = points2.T
+        points1 = K1_inv @ points1 
+        points2 = K2_inv @ points2
 
     #1: Normalization: increase stability
     T1 = normalize(points1) # Normalization matrix
     T2 = normalize(points2)
     if K1 is not None and K2 is not None: 
-        norm1 = (T1 @ points1.T).T
-        norm2 = (T2 @ points2.T).T
+        norm1 = T1 @ points1
+        norm2 = T2 @ points2
     else:
-        norm1 = (T1 @ points1.T).T
-        norm2 = (T2 @ points2.T).T
+        norm1 = T1 @ points1
+        norm2 = T2 @ points2
 
     #2: Find the fundamental matrix of the normalized points
     A_hat = linear_eq(norm1, norm2) # Normalized linear system where A_hat*f_hat = 0
