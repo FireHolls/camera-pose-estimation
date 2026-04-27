@@ -1,14 +1,15 @@
 import numpy as np
 import math
 
-class RANSAC_F:
-    def __init__(self, s, epsilon, eight_points, px1, px2):
+class RANSAC:
+    def __init__(self, s, epsilon, model_fct, px1, px2):
         self.s = s #Number of sample points
         self.epsilon = epsilon #Proportion of outliers
-        self.eigh_points = eight_points
+        self.model_fct = model_fct
         self.px1 = px1
         self.px2 = px2
         self.best_F = None
+        self.best_H = None
         self.best_score = -1
         self.N = None
         self.best_mask = None
@@ -20,20 +21,15 @@ class RANSAC_F:
         else:
             N = math.log(1 - p)/math.log(1 - (1 - self.epsilon)**self.s)
             self.N = int(math.ceil(N))
-
-            
     
     def random_samples(self):
         n = self.px1.shape[1]
         idx = np.random.choice(n, self.s, replace=False)
         sample_px1 = self.px1[:, idx]
         sample_px2 = self.px2[:, idx]
-        if sample_px1.shape[0] != 3:
-            sample_px1 = np.vstack((sample_px1, np.ones((1, self.s))))
-            sample_px2 = np.vstack((sample_px2, np.ones((1, self.s))))
         return sample_px1, sample_px2
 
-    def execute_RANSAC(self):
+    def execute_RANSAC_F(self):
         self.sample_size()
         for i in range(self.N):
             sample_px1, sample_px2 = self.random_samples()
@@ -62,6 +58,7 @@ class RANSAC_F:
             self.best_F = final_F
             
         return self.best_F, self.best_mask
+    
 
 def score_F(F, px1, px2, threshold=3.84):
     """
@@ -91,5 +88,35 @@ def score_F(F, px1, px2, threshold=3.84):
     score = float(np.sum(np.maximum(0, threshold - d_samp)))
     inlier_mask = d_samp < threshold
     return score, inlier_mask
+
+def score_H(H, px1, px2, threshold=5.99):
+    """
+    Symmetric transfer error score for homography H (ORB-SLAM style).
+
+    For each correspondence, measures how well H maps px1→px2 AND H⁻¹ maps px2→px1.
+    Points with error > threshold are considered outliers and contribute 0.
+
+      S_H = Σ [ max(0, T - d²(H·x1, x2)) + max(0, T - d²(H⁻¹·x2, x1)) ]
+
+    threshold : chi² at 95% for 2 DOF = 5.99  (transfer error is a 2D residual)
+
+    Returns: float  (higher = better fit)
+    """
+    N = px1.shape[1]
+    h1 = np.vstack([px1, np.ones((1, N))])   # (3, N)
+    h2 = np.vstack([px2, np.ones((1, N))])   # (3, N)
+
+    # Forward: H · px1 → px2
+    p12 = H @ h1
+    p12 = p12[:2] / p12[2]
+    d12 = np.sum((p12 - px2) ** 2, axis=0)
+
+    # Backward: H⁻¹ · px2 → px1
+    p21 = np.linalg.inv(H) @ h2
+    p21 = p21[:2] / p21[2]
+    d21 = np.sum((p21 - px1) ** 2, axis=0)
+
+    return float(np.sum(np.maximum(0, threshold - d12) +
+                        np.maximum(0, threshold - d21)))
 
         

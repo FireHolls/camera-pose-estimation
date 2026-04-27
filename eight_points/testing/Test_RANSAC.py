@@ -12,7 +12,7 @@ from eight_points.Retrieve_P import get_R_t_from_epipolar, P_estimation, paralla
 from eight_points.triangulation import triangulate
 from plot_fct import plot_points
 import matplotlib.pyplot as plt
-from eight_points.RANSAC import RANSAC_F
+from eight_points.RANSAC import RANSAC
 
 # 1 Génération de la scène 
 bounds = np.array([-2.0, 2.0, -1.5, 1.5, 10, 20])
@@ -42,17 +42,15 @@ px1_vis = px1[:, vis]
 px2_vis = px2[:, vis]
 
 #5 Turn the points to homogenous 2D points
-points1 = np.vstack((px1_vis, np.ones((1, px1_vis.shape[1]))))
-points2 = np.vstack((px2_vis, np.ones((1, px2_vis.shape[1]))))
 
-ransac_solver = RANSAC_F(
+ransac_solver = RANSAC(
     s=8, 
     epsilon=0.2, 
     eight_points=eight_point, 
     px1=px1_vis, 
     px2=px2_vis
 )
-F, mask = ransac_solver.execute_RANSAC()
+F, mask = ransac_solver.execute_RANSAC_F()
 
 clean_px1 = px1_vis[:, mask]
 clean_px2 = px2_vis[:, mask]

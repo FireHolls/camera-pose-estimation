@@ -34,24 +34,22 @@ px1_vis = px1[:, vis]
 px2_vis = px2[:, vis]
 
 #5 Turn the points to homogenous 2D points
-points1 = np.vstack((px1_vis, np.ones((1, px1_vis.shape[1]))))
-points2 = np.vstack((px2_vis, np.ones((1, px2_vis.shape[1]))))
 
 #6 Retrieve the translation vector and rotation matrices
-F = eight_point(points1, points2) # Calculate F first then deduce E
+F = eight_point(px1_vis, px2_vis) # Calculate F first then deduce E
 tf, R_1f, R_2f = get_R_t_from_epipolar(F, K = K) 
 
 #7 Estrimate the projection matrix
 P_estf = P_estimation(tf, R_1f, R_2f, K) # First method
-R2_hat, t2_norm, P2_norm = parallax(P_estf, K, points1, points2)
-s = find_scaling_factor(P2_norm, K, points1, points2, pts3d_vis)
+R2_hat, t2_norm, P2_norm = parallax(P_estf, K, px1_vis, px2_vis)
+s = find_scaling_factor(P2_norm, K, px1_vis, px2_vis, pts3d_vis)
 t2_hat = s*t2_norm
 P2 = K @ np.hstack((R2_hat, t2_hat))
 
 P1 = K@np.hstack((np.eye(3), np.zeros((3, 1))))
 
 
-pts3D_triag = triangulate(P1, P2, points1, points2)
+pts3D_triag = triangulate(P1, P2, px1_vis, px2_vis)
 plot_points(px2_vis, pts3D_triag, P2, title="True vs. Reprojected Points - Estimate F")
 
 sigmas  = [0.0, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0]
@@ -62,15 +60,13 @@ rng_noise = np.random.default_rng(7)
 P1 = K@np.hstack((np.eye(3), np.zeros((3, 1))))
 for sigma in sigmas:
     px_noisy    = px2_vis + rng_noise.normal(0, sigma, px2_vis.shape)
-    points1 = np.vstack((px1_vis, np.ones((1, px1_vis.shape[1]))))
-    points2 = np.vstack((px_noisy, np.ones((1, px_noisy.shape[1]))))
 
-    F_n = eight_point(points1, points2) # Calculate F first then deduce E
+    F_n = eight_point(px1_vis, px_noisy) # Calculate F first then deduce E
     tf, R_1f, R_2f = get_R_t_from_epipolar(F_n, K = K) 
     
     P_estf_n = P_estimation(tf, R_1f, R_2f, K) # First method
-    R2_hat, t2_norm, P2_norm = parallax(P_estf_n, K, points1, points2)
-    s = find_scaling_factor(P2_norm, K, points1, points2, pts3d_vis)
+    R2_hat, t2_norm, P2_norm = parallax(P_estf_n, K, px1_vis, px_noisy)
+    s = find_scaling_factor(P2_norm, K, px1_vis, px_noisy, pts3d_vis)
     print(s)
     t2_hat = s*t2_norm
     P2 = K @ np.hstack((R2_hat, t2_hat))

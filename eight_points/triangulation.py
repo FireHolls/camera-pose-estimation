@@ -50,17 +50,16 @@ def triangulate(P1, P2, pts1, pts2):
     Input: 
         - P: Projection matrix of the first camera (np.array of siez 3x4)
         - P1: Projeciton matrix of the second camera (np.array of size 3x4)
-        - pts1: The coordinate points from the first image (np.array of size 3xN)
-        - pts2: The coordinate points from the second image (np.array of size 3xN)
+        - pts1: The coordinate points from the first image (np.array of size 2xN)
+        - pts2: The coordinate points from the second image (np.array of size 2xN)
     Output:
         - X: 3D point (np.array of size 3xN)
     """
-
+    points1 = np.vstack((pts1, np.ones((1, pts1.shape[1]))))
+    points2 = np.vstack((pts2, np.ones((1, pts2.shape[1]))))
     #1 : Normalization
-    T1 = normalize(pts1)
-    T2 = normalize(pts2)
-    points1 = pts1.copy()
-    points2 = pts2.copy()
+    T1 = normalize(points1)
+    T2 = normalize(points2)
     norm1 = T1 @ points1
     norm2 = T2 @ points2
     P1_norm = T1 @ P1
