@@ -68,7 +68,7 @@ class RANSAC:
                     self.nb_inlier = current_inlier_count
                     self.epsilon = 1.0 - (self.nb_inlier / self.px1.shape[1])
                     self.selections()
-                    max_iterations = min(max_iterations, int(math.ceil(self.N)))
+                    max_iterations = min(max_iterations, self.N)
             iteration += 1
         if self.best_mask is None or np.sum(self.best_mask) < 8:
             print("Warning: RANSAC failed to find enough inliers.")
@@ -85,7 +85,6 @@ class RANSAC:
             
         return self.best_model, self.best_mask
     
-                
     
 
 def score_F_RANSAC(F, px1, px2, threshold=3.84):
