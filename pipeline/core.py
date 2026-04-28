@@ -192,12 +192,12 @@ def run_pipeline(scene, cfg):
     if cfg.use_H and M >= 4:
         try:
             #ransac_solver_H = RANSAC(
-                #s=4, 
-                #epsilon=cfg.outlier_ratio, 
+                #s=4,  
                 #score_fct=score_H_RANSAC,
                 #model_fct=homography, 
                 #px1=px1, 
-                #px2=px2
+                #px2=px2,
+                #epsilon=cfg.outlier_ratio
             #)
             #H, mask = ransac_solver_H.execute_RANSAC()
             #clean_px1 = px1[:, mask]
@@ -217,11 +217,11 @@ def run_pipeline(scene, cfg):
         try:
             #ransac_solver_F = RANSAC(
                 #s=8, 
-                #epsilon=cfg.outlier_ratio, 
                 #score_fct=score_F_RANSAC,
                 #model_fct=eight_point, 
                 #px1=px1, 
-                #px2=px2
+                #px2=px2,
+                #epsilon=cfg.outlier_ratio
             #)
             #F, mask = ransac_solver_F.execute_RANSAC()
             #clean_px1 = px1[:, mask]
