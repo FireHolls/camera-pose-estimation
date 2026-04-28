@@ -99,7 +99,7 @@ px1, d1 = project_points(pts3d, K, R1, t1)
 px2, d2 = project_points(pts3d, K, R2, t2)
 W = 1920 # Image width
 H = 1080 # Image height
-missmatch = 0
+missmatch = 10
 for i in range(missmatch):
     px2[0, i] = np.random.uniform(0, W)  
     px2[1, i] = np.random.uniform(0, H)
@@ -126,6 +126,7 @@ F_Ransac, mask = ransac_solver_F.execute_RANSAC()
 
 clean_px1 = px1_vis[:, mask]
 clean_px2 = px2_vis[:, mask]
+clean_pts3D = pts3d_vis[:, mask]
 print(clean_px1.shape)
 print(px1_vis.shape)
 tf, R_1f, R_2f = get_R_t_from_epipolar(F_Ransac, K = K) 
@@ -133,7 +134,7 @@ tf, R_1f, R_2f = get_R_t_from_epipolar(F_Ransac, K = K)
 #7 Estrimate the projection matrix
 P_estf = P_estimation(tf, R_1f, R_2f, K) # First method
 R2_hat, t2_norm, P2_norm = parallax(P_estf, K, clean_px1, clean_px2)
-s = find_scaling_factor(P2_norm, K, clean_px1, clean_px2, pts3d_vis)
+s = find_scaling_factor(P2_norm, K, clean_px1, clean_px2, clean_pts3D)
 t2_hat = s*t2_norm
 
 print(mask)
@@ -158,13 +159,3 @@ print(R2_hat)
 print(R2_hat_noR)
 print(f"Error of R with RANSAC: {error_R}. Error of R without RANSAC: {error_R_noR}.")
 
-ransac_solver_H = RANSAC(
-    s=8, 
-    epsilon=0.2, 
-    score_fct=score_H_RANSAC,
-    model_fct=homography, 
-    px1=px1_vis, 
-    px2=px2_vis
-)
-H_RANSAC, mask_H = ransac_solver_H.execute_RANSAC()
-print(mask)

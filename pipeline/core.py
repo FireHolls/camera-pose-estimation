@@ -202,9 +202,10 @@ def run_pipeline(scene, cfg):
             #H, mask = ransac_solver_H.execute_RANSAC()
             #clean_px1 = px1[:, mask]
             #clean_px2 = px2[:, mask]
+            #clean_pts3d = pts3d[:, mask]
             H        = homography(px1, px2) #Enlève cette ligne
             S_H      = score_H(H, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
-            R_H, t_H = decompose_H(H, K, plane_dist=plane_dist, X_ref=pts3d[:, 0])
+            R_H, t_H = decompose_H(H, K, plane_dist=plane_dist, X_ref=pts3d[:, 0]) #Remplace pts3d par clean_pts3d
             res.update(S_H=S_H, R_H=R_H, t_H=t_H)
             if R_H is not None:
                 res['err_R_H'] = _rot_err(R_H, R_true)
@@ -225,13 +226,14 @@ def run_pipeline(scene, cfg):
             #F, mask = ransac_solver_F.execute_RANSAC()
             #clean_px1 = px1[:, mask]
             #clean_px2 = px2[:, mask]
+            #clean_pts3d = pts3d[:, mask]
             F     = eight_point(px1, px2)  #Enlève cette ligne
             S_F   = score_F(F, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
             with contextlib.redirect_stdout(io.StringIO()):
                 t_col, R1_f, R2_f = get_R_t_from_epipolar(F, K)
             Ps       = P_estimation(t_col, R1_f, R2_f, K, s=1) #Enlève "s = 1"
             #R_F, t_F_norm, P_norm = parallax(Ps, K, clean_px1, clean_px2)
-            #s = find_scaling_factor(P_norm, K, clean_px1, clean_px2, pts3d)
+            #s = find_scaling_factor(P_norm, K, clean_px1, clean_px2, clean_pts3d)
             #t_F = s*t_F_norm
             R_F, t_F = _best_P(Ps, pts3d, px2, K) #Enlève cette ligne
             res.update(S_F=S_F, R_F=R_F, t_F=t_F)
