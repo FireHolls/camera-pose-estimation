@@ -5,16 +5,21 @@ class RANSAC:
     def __init__(self, s, epsilon, score_fct, model_fct, px1, px2):
         self.s = s #Number of sample points
         self.epsilon = epsilon #Proportion of outliers
-        self.score_fct = score_fct
-        self.model_fct = model_fct
-        self.px1 = px1
-        self.px2 = px2
+        self.score_fct = score_fct #The score function
+        self.model_fct = model_fct #The model function
+        self.px1 = px1 #2D points in image 1 (2xN)
+        self.px2 = px2 #2D points in image 2 (2xN)
         self.best_model = None
         self.best_score = -1
-        self.N = None
+        self.N = None #Number of selections to be determined
         self.best_mask = None
 
-    def sample_size(self):
+    def selections(self):
+        """
+        Function to determine the number of selection N, where N = log(1 - p)/log(1 - (1 - epsilon)^s),
+        where s is the sample size, epsilon is the probability that any data point is an outlier and p 
+        is the probability that at least one of the random samples of s points is free from outliers.
+        """
         p = 0.99
         if self.epsilon == 0.0:
             self.N = 1
@@ -23,6 +28,9 @@ class RANSAC:
             self.N = int(math.ceil(N))
     
     def random_samples(self):
+        """
+        Function to select a random sample of points to run the model.
+        """
         n = self.px1.shape[1]
         idx = np.random.choice(n, self.s, replace=False)
         sample_px1 = self.px1[:, idx]
@@ -30,7 +38,10 @@ class RANSAC:
         return sample_px1, sample_px2
 
     def execute_RANSAC(self):
-        self.sample_size()
+        """
+        Function to execute the RANSAC and find the largest valid set and the model which matches this set
+        """
+        self.selections()
         for i in range(self.N):
             sample_px1, sample_px2 = self.random_samples()
             model_fct_input = (sample_px1, sample_px2)
@@ -59,7 +70,7 @@ class RANSAC:
         return self.best_model, self.best_mask
     
 
-def score_F(F, px1, px2, threshold=3.84):
+def score_F_RANSAC(F, px1, px2, threshold=3.84):
     """
     Symmetric Sampson distance score for fundamental matrix F (ORB-SLAM style).
 
@@ -88,7 +99,7 @@ def score_F(F, px1, px2, threshold=3.84):
     inlier_mask = d_samp < threshold
     return score, inlier_mask
 
-def score_H(H, px1, px2, threshold=5.99):
+def score_H_RANSAC(H, px1, px2, threshold=5.99):
     """
     Symmetric transfer error score for homography H (ORB-SLAM style).
 
