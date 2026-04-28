@@ -115,11 +115,11 @@ px2_vis = px2[:, vis]
 
 ransac_solver_F = RANSAC(
     s=8, 
-    epsilon=0.2, 
     score_fct=score_F,
     model_fct=eight_point, 
     px1=px1_vis, 
-    px2=px2_vis
+    px2=px2_vis,
+    epsilon=None
 )
 F_Ransac, mask = ransac_solver_F.execute_RANSAC()
 
