@@ -2,17 +2,18 @@ import numpy as np
 import math
 
 class RANSAC:
-    def __init__(self, s, epsilon, score_fct, model_fct, px1, px2):
+    def __init__(self, s, score_fct, model_fct, px1, px2, epsilon = None):
         self.s = s #Number of sample points
-        self.epsilon = epsilon #Proportion of outliers
         self.score_fct = score_fct #The score function
         self.model_fct = model_fct #The model function
         self.px1 = px1 #2D points in image 1 (2xN)
         self.px2 = px2 #2D points in image 2 (2xN)
+        self.epsilon = epsilon #Proportion of outliers
         self.best_model = None
         self.best_score = -1
         self.N = None #Number of selections to be determined
         self.best_mask = None
+        self.nb_inlier = -1
 
     def selections(self):
         """
@@ -41,19 +42,34 @@ class RANSAC:
         """
         Function to execute the RANSAC and find the largest valid set and the model which matches this set
         """
-        self.selections()
-        for i in range(self.N):
+        if self.epsilon is not None:
+            self.selections()
+            max_iterations = self.N
+        else:   
+            max_iterations = 100000
+        iteration = 0
+        while iteration < max_iterations:
+            #1 Generate model
             sample_px1, sample_px2 = self.random_samples()
             model_fct_input = (sample_px1, sample_px2)
             candidate = self.model_fct(*model_fct_input)
             if candidate is None:
                 continue
+            #2 Evaluate
             score_fct_input = (candidate, self.px1, self.px2)
             current_score, current_mask = self.score_fct(*score_fct_input)
+            current_inlier_count = np.sum(current_mask)
+            #3 Save if it's the best model
             if current_score >self.best_score:
                 self.best_score = current_score
                 self.best_model = candidate
                 self.best_mask = current_mask
+                if self.epsilon is None or current_inlier_count > self.nb_inlier:
+                    self.nb_inlier = current_inlier_count
+                    self.epsilon = 1.0 - (self.nb_inlier / self.px1.shape[1])
+                    self.selections()
+                    max_iterations = min(max_iterations, int(math.ceil(self.N)))
+            iteration += 1
         if self.best_mask is None or np.sum(self.best_mask) < 8:
             print("Warning: RANSAC failed to find enough inliers.")
             return self.best_model, self.best_mask 
@@ -68,6 +84,8 @@ class RANSAC:
             self.best_model = final_model
             
         return self.best_model, self.best_mask
+    
+                
     
 
 def score_F_RANSAC(F, px1, px2, threshold=3.84):
