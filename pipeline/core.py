@@ -199,9 +199,9 @@ def run_pipeline(scene, cfg):
                 #px1=px1, 
                 #px2=px2
             #)
-            #H, mask = ransac_solver_F.execute_RANSAC()
-            #clean_px1 = px1_vis[:, mask]
-            #clean_px2 = px2_vis[:, mask]
+            #H, mask = ransac_solver_H.execute_RANSAC()
+            #clean_px1 = px1[:, mask]
+            #clean_px2 = px2[:, mask]
             H        = homography(px1, px2) #Enlève cette ligne
             S_H      = score_H(H, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
             R_H, t_H = decompose_H(H, K, plane_dist=plane_dist, X_ref=pts3d[:, 0])
@@ -223,8 +223,8 @@ def run_pipeline(scene, cfg):
                 #px2=px2
             #)
             #F, mask = ransac_solver_F.execute_RANSAC()
-            #clean_px1 = px1_vis[:, mask]
-            #clean_px2 = px2_vis[:, mask]
+            #clean_px1 = px1[:, mask]
+            #clean_px2 = px2[:, mask]
             F     = eight_point(px1, px2)  #Enlève cette ligne
             S_F   = score_F(F, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
             with contextlib.redirect_stdout(io.StringIO()):
