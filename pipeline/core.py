@@ -11,8 +11,9 @@ from simulation.camera_model      import get_camera_pose
 from simulation.projection        import project_points, filter_visible
 from simulation.homography        import homography, decompose_H
 from eight_points.eight_point_agl import eight_point
-from eight_points.Retrieve_P      import get_R_t_from_epipolar, P_estimation
+from eight_points.Retrieve_P      import get_R_t_from_epipolar, P_estimation#, parallax, find_scaling_factor
 from score                        import score_H, score_F
+#from eight_points.RANSAC          import RANSAC, score_H_RANSAC, score_F_RANSAC
 
 H_RATIO_THRESH = 0.45
 
@@ -137,7 +138,7 @@ def _trans_err(t_est, t_ref):
     return np.degrees(np.arccos(np.clip(abs(np.dot(u, v)), 0, 1)))
 
 
-def _best_P(Ps, pts3d, px2, K):
+def _best_P(Ps, pts3d, px2, K): # Enlève cette fonction
     """Parmi les 4 candidats (R,t) de la décomposition de E, retourne celui avec le RMSE minimal."""
     K_inv   = np.linalg.inv(K)
     pts3d_h = np.vstack([pts3d, np.ones((1, pts3d.shape[1]))])
@@ -190,8 +191,19 @@ def run_pipeline(scene, cfg):
 
     if cfg.use_H and M >= 4:
         try:
-            H        = homography(px1, px2)
-            S_H      = score_H(H, px1, px2)
+            #ransac_solver_H = RANSAC(
+                #s=4, 
+                #epsilon=cfg.outlier_ratio, 
+                #score_fct=score_H_RANSAC,
+                #model_fct=homography, 
+                #px1=px1, 
+                #px2=px2
+            #)
+            #H, mask = ransac_solver_H.execute_RANSAC()
+            #clean_px1 = px1[:, mask]
+            #clean_px2 = px2[:, mask]
+            H        = homography(px1, px2) #Enlève cette ligne
+            S_H      = score_H(H, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
             R_H, t_H = decompose_H(H, K, plane_dist=plane_dist, X_ref=pts3d[:, 0])
             res.update(S_H=S_H, R_H=R_H, t_H=t_H)
             if R_H is not None:
@@ -202,12 +214,26 @@ def run_pipeline(scene, cfg):
 
     if cfg.use_F and M >= 8:
         try:
-            F     = eight_point(px1, px2)
-            S_F   = score_F(F, px1, px2)
+            #ransac_solver_F = RANSAC(
+                #s=8, 
+                #epsilon=cfg.outlier_ratio, 
+                #score_fct=score_F_RANSAC,
+                #model_fct=eight_point, 
+                #px1=px1, 
+                #px2=px2
+            #)
+            #F, mask = ransac_solver_F.execute_RANSAC()
+            #clean_px1 = px1[:, mask]
+            #clean_px2 = px2[:, mask]
+            F     = eight_point(px1, px2)  #Enlève cette ligne
+            S_F   = score_F(F, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
             with contextlib.redirect_stdout(io.StringIO()):
                 t_col, R1_f, R2_f = get_R_t_from_epipolar(F, K)
-            Ps       = P_estimation(t_col, R1_f, R2_f, K, s=1)
-            R_F, t_F = _best_P(Ps, pts3d, px2, K)
+            Ps       = P_estimation(t_col, R1_f, R2_f, K, s=1) #Enlève "s = 1"
+            #R_F, t_F_norm, P_norm = parallax(Ps, K, clean_px1, clean_px2)
+            #s = find_scaling_factor(P_norm, K, clean_px1, clean_px2, pts3d)
+            #t_F = s*t_F_norm
+            R_F, t_F = _best_P(Ps, pts3d, px2, K) #Enlève cette ligne
             res.update(S_F=S_F, R_F=R_F, t_F=t_F)
             if R_F is not None:
                 res['err_R_F'] = _rot_err(R_F, R_true)
