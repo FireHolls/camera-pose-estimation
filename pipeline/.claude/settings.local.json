@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/User/Desktop/camera-pose-estimation/**)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}

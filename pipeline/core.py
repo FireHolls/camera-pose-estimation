@@ -1,5 +1,5 @@
 """
-Piepeline central logical : scene generator, estimation H/F, scoring.
+Pipeline central logic: scene generation, H/F estimation, scoring.
 """
 
 import sys, os, io, contextlib, copy
@@ -11,9 +11,9 @@ from simulation.camera_model      import get_camera_pose
 from simulation.projection        import project_points, filter_visible
 from simulation.homography        import homography, decompose_H
 from eight_points.eight_point_agl import eight_point
-from eight_points.Retrieve_P      import get_R_t_from_epipolar, P_estimation#, parallax, find_scaling_factor
+from eight_points.Retrieve_P      import get_R_t_from_epipolar, P_estimation, parallax, find_scaling_factor
+from eight_points.RANSAC          import RANSAC, score_H_RANSAC, score_F_RANSAC
 from score                        import score_H, score_F
-#from eight_points.RANSAC          import RANSAC, score_H_RANSAC, score_F_RANSAC
 
 H_RATIO_THRESH = 0.45
 
@@ -24,48 +24,48 @@ H_RATIO_THRESH = 0.45
 
 class Config:
     def __init__(self):
-        # Scène
-        self.scene_type    = 'planar'   # 'planar' | 'nonplanar' 
+        # Scene
+        self.scene_type    = 'planar'   # 'planar' | 'nonplanar'
         self.z_min         = 5.0
         self.z_max         = 7.0
         self.x_range       = 2.0
         self.y_range       = 1.5
         self.n_points      = 100
         self.noise_sigma   = 0.0
-        self.outlier_ratio = 0.0
+        self.outlier_ratio = 0.0        # fraction in [0, 1]
         self.seed          = 42
 
-        # Caméra 1 (reference)
+        # Camera 1 (reference)
         self.cam1_rx = 0.0;  self.cam1_ry = 0.0;  self.cam1_rz = 0.0
         self.cam1_tx = 0.0;  self.cam1_ty = 0.0;  self.cam1_tz = 0.0
 
-        # Caméra 2
+        # Camera 2
         self.cam2_rx = 0.0;  self.cam2_ry = 8.0;  self.cam2_rz = 0.0
         self.cam2_tx = 0.4;  self.cam2_ty = 0.0;  self.cam2_tz = 0.0
 
-        # Intrinsèques
+        # Intrinsics
         self.fx    = 1000.0;  self.fy = 1000.0
         self.cx    =  960.0;  self.cy =  540.0
         self.img_w = 1920;    self.img_h = 1080
 
-        # Méthodes
+        # Methods
         self.use_H = True
         self.use_F = True
 
-        # Analyse
+        # Analysis
         self.mode         = 'single'   # 'single' | 'noise_sweep'
         self.noise_levels = [0.0, 0.5, 1.0, 2.0, 3.0, 5.0]
         self.export_png   = False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Génération de scène
+#  Scene generation
 # ══════════════════════════════════════════════════════════════════════════════
 
 def make_scene(cfg, seed_override=None):
     """
-    Génère une scène synthétique vue par deux caméras.
-    Retourne un dict : pts3d, px1, px2, K, R_rel, t_rel, R1, t1.
+    Generates a synthetic scene seen by two cameras.
+    Returns a dict: pts3d, px1, px2, K, R_rel, t_rel, R1, t1.
     """
     seed = cfg.seed if seed_override is None else seed_override
     rng  = np.random.default_rng(seed)
@@ -75,12 +75,9 @@ def make_scene(cfg, seed_override=None):
 
     if cfg.scene_type == 'planar':
         zs = np.full(cfg.n_points, cfg.z_min)
-    elif cfg.scene_type == 'nonplanar':
-        lo, hi = min(cfg.z_min, cfg.z_max), max(cfg.z_min, cfg.z_max)
-        zs = rng.uniform(lo, hi, cfg.n_points)
     else:
         lo, hi = min(cfg.z_min, cfg.z_max), max(cfg.z_min, cfg.z_max)
-        zs = np.full(cfg.n_points, lo) if abs(lo - hi) < 1e-6 else rng.uniform(lo, hi, cfg.n_points)
+        zs = rng.uniform(lo, hi, cfg.n_points)
 
     pts3d = np.vstack([xs, ys, zs])
     K = np.array([[cfg.fx, 0, cfg.cx],
@@ -138,38 +135,10 @@ def _trans_err(t_est, t_ref):
     return np.degrees(np.arccos(np.clip(abs(np.dot(u, v)), 0, 1)))
 
 
-def _best_P(Ps, pts3d, px2, K): # Enlève cette fonction
-    """Parmi les 4 candidats (R,t) de la décomposition de E, retourne celui avec le RMSE minimal."""
-    K_inv   = np.linalg.inv(K)
-    pts3d_h = np.vstack([pts3d, np.ones((1, pts3d.shape[1]))])
-    best_rmse, best_R, best_t = np.inf, None, None
-
-    for P in Ps:
-        proj   = P @ pts3d_h
-        depths = proj[2]
-        if (depths > 0).mean() < 0.5:
-            continue
-        mask   = depths > 0
-        px_est = proj[:2, mask] / depths[mask]
-        rmse   = np.sqrt(np.mean(np.sum((px_est - px2[:, mask]) ** 2, axis=0)))
-        if rmse < best_rmse:
-            best_rmse = rmse
-            Rt = K_inv @ P
-            R  = Rt[:, :3]
-            U, _, Vt = np.linalg.svd(R)
-            R_ = U @ Vt
-            if np.linalg.det(R_) < 0:
-                Vt[-1] *= -1
-                R_ = U @ Vt
-            best_R, best_t = R_, Rt[:, 3]
-
-    return best_R, best_t
-
-
 def run_pipeline(scene, cfg):
     """
-    Lance les méthodes activées (H et/ou F) sur une scène.
-    Retourne un dict avec scores, poses estimées et erreurs angulaires.
+    Runs the enabled methods (H and/or F) on a scene.
+    Returns a dict with scores, estimated poses and angular errors.
     """
     pts3d, px1, px2, K = scene['pts3d'], scene['px1'], scene['px2'], scene['K']
     R_true, t_true      = scene['R_rel'], scene['t_rel']
@@ -189,23 +158,27 @@ def run_pipeline(scene, cfg):
     planar     = (cfg.scene_type == 'planar')
     plane_dist = cfg.z_min if planar else None
 
+    # ── Homography branch ────────────────────────────────────────────────────
     if cfg.use_H and M >= 4:
         try:
-            #ransac_solver_H = RANSAC(
-                #s=4,  
-                #score_fct=score_H_RANSAC,
-                #model_fct=homography, 
-                #px1=px1, 
-                #px2=px2,
-                #epsilon=cfg.outlier_ratio
-            #)
-            #H, mask = ransac_solver_H.execute_RANSAC()
-            #clean_px1 = px1[:, mask]
-            #clean_px2 = px2[:, mask]
-            #clean_pts3d = pts3d[:, mask]
-            H        = homography(px1, px2) #Enlève cette ligne
-            S_H      = score_H(H, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
-            R_H, t_H = decompose_H(H, K, plane_dist=plane_dist, X_ref=pts3d[:, 0]) #Remplace pts3d par clean_pts3d
+            ransac_H = RANSAC(
+                s=4,
+                score_fct=score_H_RANSAC,
+                model_fct=homography,
+                px1=px1,
+                px2=px2,
+                epsilon=cfg.outlier_ratio,   # already a fraction [0, 1]
+            )
+            H, mask = ransac_H.execute_RANSAC()
+            if H is None or mask is None or np.sum(mask) < 4:
+                raise ValueError("RANSAC H: not enough inliers")
+            clean_px1   = px1[:, mask]
+            clean_px2   = px2[:, mask]
+            clean_pts3d = pts3d[:, mask]
+
+            S_H      = score_H(H, clean_px1, clean_px2)
+            R_H, t_H = decompose_H(H, K, plane_dist=plane_dist,
+                                   X_ref=clean_pts3d[:, 0])
             res.update(S_H=S_H, R_H=R_H, t_H=t_H)
             if R_H is not None:
                 res['err_R_H'] = _rot_err(R_H, R_true)
@@ -213,29 +186,42 @@ def run_pipeline(scene, cfg):
         except Exception:
             pass
 
+    # ── Fundamental matrix branch ────────────────────────────────────────────
     if cfg.use_F and M >= 8:
         try:
-            #ransac_solver_F = RANSAC(
-                #s=8, 
-                #score_fct=score_F_RANSAC,
-                #model_fct=eight_point, 
-                #px1=px1, 
-                #px2=px2,
-                #epsilon=cfg.outlier_ratio
-            #)
-            #F, mask = ransac_solver_F.execute_RANSAC()
-            #clean_px1 = px1[:, mask]
-            #clean_px2 = px2[:, mask]
-            #clean_pts3d = pts3d[:, mask]
-            F     = eight_point(px1, px2)  #Enlève cette ligne
-            S_F   = score_F(F, px1, px2) #Remplace px1 et px2 par clean_px1 et clean_px2
+            ransac_F = RANSAC(
+                s=8,
+                score_fct=score_F_RANSAC,
+                model_fct=eight_point,
+                px1=px1,
+                px2=px2,
+                epsilon=cfg.outlier_ratio,   #  fraction [0, 1]
+            )
+            F, mask = ransac_F.execute_RANSAC()
+            if F is None or mask is None or np.sum(mask) < 8:
+                raise ValueError("RANSAC F: not enough inliers")
+            clean_px1   = px1[:, mask]
+            clean_px2   = px2[:, mask]
+            clean_pts3d = pts3d[:, mask]
+
+            S_F = score_F(F, clean_px1, clean_px2)
+
             with contextlib.redirect_stdout(io.StringIO()):
                 t_col, R1_f, R2_f = get_R_t_from_epipolar(F, K)
-            Ps       = P_estimation(t_col, R1_f, R2_f, K, s=1) #Enlève "s = 1"
-            #R_F, t_F_norm, P_norm = parallax(Ps, K, clean_px1, clean_px2)
-            #s = find_scaling_factor(P_norm, K, clean_px1, clean_px2, clean_pts3d)
-            #t_F = s*t_F_norm
-            R_F, t_F = _best_P(Ps, pts3d, px2, K) #Enlève cette ligne
+
+            Ps = P_estimation(t_col, R1_f, R2_f, K)
+
+            # Select best (R, t) via positive-depth test (parallax criterion)
+            with contextlib.redirect_stdout(io.StringIO()):
+                R_F, t_F_norm, P_norm = parallax(Ps, K, clean_px1, clean_px2)
+
+            if R_F is None:
+                raise ValueError("parallax: no valid solution found")
+
+            # Recover metric scale from ground-truth 3D distances
+            s   = find_scaling_factor(P_norm, K, clean_px1, clean_px2, clean_pts3d)
+            t_F = (s * t_F_norm).flatten()   # (3,1) → (3,)
+
             res.update(S_F=S_F, R_F=R_F, t_F=t_F)
             if R_F is not None:
                 res['err_R_F'] = _rot_err(R_F, R_true)
@@ -243,6 +229,7 @@ def run_pipeline(scene, cfg):
         except Exception:
             pass
 
+    # ── Winner decision ──────────────────────────────────────────────────────
     sh, sf = res['S_H'], res['S_F']
     if sh is not None and sf is not None:
         ratio = sh / (sh + sf)
@@ -256,7 +243,7 @@ def run_pipeline(scene, cfg):
 
 
 def run_noise_sweep(cfg):
-    """Lance le pipeline sur chaque niveau de bruit. Retourne une liste de dicts avec clé 'sigma'."""
+    """Runs the pipeline at each noise level. Returns a list of dicts with key 'sigma'."""
     levels = sorted(cfg.noise_levels)
     tmp    = copy.copy(cfg)
     results = []
