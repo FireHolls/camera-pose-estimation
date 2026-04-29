@@ -30,7 +30,7 @@ mpl.rcParams.update({
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from mpl_toolkits.mplot3d import Axes3D  # noqa
+from mpl_toolkits.mplot3d import Axes3D  
 
 from core import Config, make_scene, run_pipeline, run_noise_sweep, H_RATIO_THRESH
 from visualize3d import (
@@ -38,7 +38,7 @@ from visualize3d import (
     _draw_image_cam2_H, _draw_image_cam2_F, _draw_score_bar,
 )
 
-# ── Palette Catppuccin Mocha ───────────────────────────────────────────────────
+# ── Palette 
 BG      = '#1e1e2e'
 SURFACE = '#313244'
 OVERLAY = '#45475a'
@@ -158,11 +158,6 @@ class SliderRow:
     def set(self, v):
         self._sl.set(v)
         self._var.set(f'{v:{self._fmt}}')
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Application principale
-# ══════════════════════════════════════════════════════════════════════════════
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -564,7 +559,7 @@ class App(ctk.CTk):
         cfg.export_png = self._export.get() == 1
         return cfg
 
-    # ── Lancer l'analyse ──────────────────────────────────────────────────────
+    # ── Analyse Run ──────────────────────────────────────────────────────
 
     def on_run(self):
         if self._running:
@@ -613,7 +608,7 @@ class App(ctk.CTk):
         ax.set_facecolor('#ffffff')
 
     def _polish_ax2d(self, ax):
-        pass  # rcParams clairs gèrent tout
+        pass  
 
     def _style_ax3d(self, ax):
         for pane in [ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane]:
@@ -623,7 +618,7 @@ class App(ctk.CTk):
         ax.grid(True, color='#dddddd', alpha=1.0)
 
     def _polish_ax3d(self, ax):
-        pass  # rcParams clairs gèrent tout
+        pass  
 
     def _show_single(self, scene, res, cfg):
         self._fig.clear()

@@ -1,5 +1,5 @@
 """
-Logique centrale du pipeline : génération de scène, estimation H/F, scoring.
+Piepeline central logical : scene generator, estimation H/F, scoring.
 """
 
 import sys, os, io, contextlib, copy
@@ -25,7 +25,7 @@ H_RATIO_THRESH = 0.45
 class Config:
     def __init__(self):
         # Scène
-        self.scene_type    = 'planar'   # 'planar' | 'nonplanar' | 'custom'
+        self.scene_type    = 'planar'   # 'planar' | 'nonplanar' 
         self.z_min         = 5.0
         self.z_max         = 7.0
         self.x_range       = 2.0
@@ -35,7 +35,7 @@ class Config:
         self.outlier_ratio = 0.0
         self.seed          = 42
 
-        # Caméra 1 (référence)
+        # Caméra 1 (reference)
         self.cam1_rx = 0.0;  self.cam1_ry = 0.0;  self.cam1_rz = 0.0
         self.cam1_tx = 0.0;  self.cam1_ty = 0.0;  self.cam1_tz = 0.0
 
