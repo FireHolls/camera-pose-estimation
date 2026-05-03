@@ -157,6 +157,5 @@ error_R = _rot_err(R2_hat, R2)
 error_R_noR = _rot_err(R2_hat_noR, R2)
 print(R2_hat)
 print(R2)
-print(t2_hat)
 print(f"Error of R with RANSAC: {error_R}. Error of R without RANSAC: {error_R_noR}.")
 
