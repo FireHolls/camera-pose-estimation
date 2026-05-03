@@ -167,7 +167,7 @@ def run_pipeline(scene, cfg):
                 model_fct=homography,
                 px1=px1,
                 px2=px2,
-                epsilon=cfg.outlier_ratio,   # already a fraction [0, 1]
+                epsilon=None,   # already a fraction [0, 1]
             )
             H, mask = ransac_H.execute_RANSAC()
             if H is None or mask is None or np.sum(mask) < 4:
@@ -195,7 +195,7 @@ def run_pipeline(scene, cfg):
                 model_fct=eight_point,
                 px1=px1,
                 px2=px2,
-                epsilon=cfg.outlier_ratio,   #  fraction [0, 1]
+                epsilon=None,   #  fraction [0, 1]
             )
             F, mask = ransac_F.execute_RANSAC()
             if F is None or mask is None or np.sum(mask) < 8:

@@ -92,7 +92,7 @@ pts3d  = PointsGenerator(nbPoints=50, seed=43, bounds=bounds, nbPointPlanar=0)
 # 2 Définition des caméras 
 K = get_K()
 R1, t1 = np.eye(3), np.zeros(3)
-R2, t2 = get_camera_pose(rz=10, tx=4, ty = 2)
+R2, t2 = get_camera_pose(ry=10)
 
 # 3 Projection 
 px1, d1 = project_points(pts3d, K, R1, t1)
@@ -156,6 +156,7 @@ print(f"RANSAC kept {clean_px1.shape[1]} points out of {px1_vis.shape[1]}.")
 error_R = _rot_err(R2_hat, R2)
 error_R_noR = _rot_err(R2_hat_noR, R2)
 print(R2_hat)
-print(R2_hat_noR)
+print(R2)
+print(t2_hat)
 print(f"Error of R with RANSAC: {error_R}. Error of R without RANSAC: {error_R_noR}.")
 

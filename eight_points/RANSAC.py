@@ -14,6 +14,9 @@ class RANSAC:
         self.N = None #Number of selections to be determined
         self.best_mask = None
         self.nb_inlier = -1
+        self.rng = np.random.default_rng()
+        self.log_prob = math.log(1.0 - 0.99)
+        self.n_pts = px1.shape[1]
 
     def selections(self):
         """
@@ -21,11 +24,10 @@ class RANSAC:
         where s is the sample size, epsilon is the probability that any data point is an outlier and p 
         is the probability that at least one of the random samples of s points is free from outliers.
         """
-        p = 0.99
         if self.epsilon == 0.0:
             self.N = 1
         else:
-            N = math.log(1 - p)/math.log(1 - (1 - self.epsilon)**self.s)
+            N = self.log_prob/math.log(1 - (1 - self.epsilon)**self.s)
             self.N = int(math.ceil(N))
     
     def random_samples(self):
@@ -50,14 +52,14 @@ class RANSAC:
         iteration = 0
         while iteration < max_iterations:
             #1 Generate model
-            sample_px1, sample_px2 = self.random_samples()
-            model_fct_input = (sample_px1, sample_px2)
-            candidate = self.model_fct(*model_fct_input)
+            idx = self.rng.choice(self.n_pts, self.s, replace=False)
+            sample_px1 = self.px1[:, idx]
+            sample_px2 = self.px2[:, idx]
+            candidate = self.model_fct(sample_px1, sample_px2)
             if candidate is None:
                 continue
             #2 Evaluate
-            score_fct_input = (candidate, self.px1, self.px2)
-            current_score, current_mask = self.score_fct(*score_fct_input)
+            current_score, current_mask = self.score_fct(candidate, self.px1, self.px2)
             current_inlier_count = np.sum(current_mask)
             #3 Save if it's the best model
             if current_score >self.best_score:
@@ -77,8 +79,7 @@ class RANSAC:
         inlier_px1 = self.px1[:, self.best_mask]
         inlier_px2 = self.px2[:, self.best_mask]
         
-        final_input = (inlier_px1, inlier_px2)
-        final_model = self.model_fct(*final_input)
+        final_model = self.model_fct(inlier_px1, inlier_px2)
         
         if final_model is not None:
             self.best_model = final_model
