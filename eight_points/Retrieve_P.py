@@ -92,7 +92,6 @@ def parallax(P2_all, K, pt1, pt2):
             best_R2 = R2
             best_t2 = t2
             best_P2 = P2
-    print(max_positive_depths)
     return best_R2, best_t2, best_P2
 
 def find_scaling_factor(P2, K, pts1, pts2, pts3D):
