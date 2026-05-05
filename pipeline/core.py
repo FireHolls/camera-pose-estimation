@@ -70,16 +70,19 @@ def make_scene(cfg, seed_override=None):
     seed = cfg.seed if seed_override is None else seed_override
     rng  = np.random.default_rng(seed)
 
-    xs = rng.uniform(-cfg.x_range, cfg.x_range, cfg.n_points)
-    ys = rng.uniform(-cfg.y_range, cfg.y_range, cfg.n_points)
-
-    if cfg.scene_type == 'planar':
-        zs = np.full(cfg.n_points, cfg.z_min)
+    if cfg.scene_type == 'urban':
+        from simulation.scene_urban import generate_urban_scene
+        pts3d, urban_colors = generate_urban_scene(rng, cfg.n_points)
     else:
-        lo, hi = min(cfg.z_min, cfg.z_max), max(cfg.z_min, cfg.z_max)
-        zs = rng.uniform(lo, hi, cfg.n_points)
-
-    pts3d = np.vstack([xs, ys, zs])
+        urban_colors = None
+        xs = rng.uniform(-cfg.x_range, cfg.x_range, cfg.n_points)
+        ys = rng.uniform(-cfg.y_range, cfg.y_range, cfg.n_points)
+        if cfg.scene_type == 'planar':
+            zs = np.full(cfg.n_points, cfg.z_min)
+        else:
+            lo, hi = min(cfg.z_min, cfg.z_max), max(cfg.z_min, cfg.z_max)
+            zs = rng.uniform(lo, hi, cfg.n_points)
+        pts3d = np.vstack([xs, ys, zs])
     K = np.array([[cfg.fx, 0, cfg.cx],
                   [0, cfg.fy, cfg.cy],
                   [0,      0,     1]], dtype=np.float64)
@@ -117,6 +120,7 @@ def make_scene(cfg, seed_override=None):
         'pts3d': pts3d[:, vis], 'px1': px1, 'px2': px2,
         'K': K, 'R_rel': R_rel, 't_rel': t_rel,
         'R1': R1, 't1': t1,
+        'urban_colors': urban_colors[vis] if urban_colors is not None else None,
     }
 
 

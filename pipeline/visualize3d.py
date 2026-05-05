@@ -99,14 +99,30 @@ def _set_equal_3d(ax, *point_sets):
 
 # ── Sub-plot drawing functions ─────────────────────────────────────────────────
 
-def _draw_3d(ax, scene, R_H, t_H, R_F, t_F, winner, planar, w=W_IMG, h=H_IMG):
+def _draw_3d(ax, scene, R_H, t_H, R_F, t_F, winner, scene_type, w=W_IMG, h=H_IMG):
+    # backward-compat: accept bool (planar=True/False) or string scene_type
+    if isinstance(scene_type, bool):
+        scene_type = 'planar' if scene_type else 'nonplanar'
+
     pts3d  = scene['pts3d']
     K      = scene['K']
     R2, t2 = scene['R_rel'], scene['t_rel']
     R1, t1 = np.eye(3), np.zeros(3)
 
-    ax.scatter(pts3d[0], pts3d[1], pts3d[2],
-               c=pts3d[2], cmap='plasma', s=12, alpha=0.45, label='3D Points')
+    colors = scene.get('urban_colors')
+    if colors is not None:
+        from simulation.scene_urban import BUILDING_COLOR, TREE_COLOR, CAR_COLOR
+        from matplotlib.patches import Patch
+        ax.scatter(pts3d[0], pts3d[1], pts3d[2],
+                   c=colors, s=18, alpha=0.7)
+        ax.legend(handles=[
+            Patch(color=BUILDING_COLOR, label='Buildings'),
+            Patch(color=TREE_COLOR,     label='Trees'),
+            Patch(color=CAR_COLOR,      label='Cars'),
+        ], fontsize=7, loc='upper left', framealpha=0.7)
+    else:
+        ax.scatter(pts3d[0], pts3d[1], pts3d[2],
+                   c=pts3d[2], cmap='plasma', s=12, alpha=0.45, label='3D Points')
 
     _draw_frustum(ax, R1, t1, K, CAM1_C, 'Camera 1 (GT)', lw=2.0, w=w, h=h)
     _draw_cam_axes(ax, R1, t1)
@@ -129,9 +145,11 @@ def _draw_3d(ax, scene, R_H, t_H, R_F, t_F, winner, planar, w=W_IMG, h=H_IMG):
     ax.set_xlabel('X (m)', fontsize=8, labelpad=4)
     ax.set_ylabel('Y (m)', fontsize=8, labelpad=4)
     ax.set_zlabel('Z (m)', fontsize=8, labelpad=4)
-    scene_lbl = 'Planar' if planar else 'Non-planar'
+    lbl_map = {'planar': 'Planar', 'nonplanar': 'Non-planar', 'urban': 'Urban'}
+    scene_lbl = lbl_map.get(scene_type, scene_type)
     ax.set_title(f'3D View — {scene_lbl}', fontsize=10, pad=10, color='#1e1e2e')
-    ax.legend(fontsize=7, loc='upper left', framealpha=0.7)
+    if colors is None:
+        ax.legend(fontsize=7, loc='upper left', framealpha=0.7)
     ax.view_init(elev=22, azim=-65)
 
     C1 = _cam_center(R1, t1)

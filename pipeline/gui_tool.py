@@ -235,7 +235,7 @@ class App(ctk.CTk):
 
         self._scene_type_var = ctk.StringVar(value='Planar')
         seg = ctk.CTkSegmentedButton(
-            tab, values=['Planar', 'Non-planar'],
+            tab, values=['Planar', 'Non-planar', 'Urban'],
             variable=self._scene_type_var, font=FONT_NRM,
             selected_color=BLUE, selected_hover_color='#6ca0e8',
             command=self._on_scene_type)
@@ -248,7 +248,7 @@ class App(ctk.CTk):
         self._z_frame.columnconfigure(1, weight=1)
         self._z_min = EntryRow(self._z_frame, 'Depth Z  (m)', 5.0, 0)
 
-        # Non-planar: Z min + Z max (hidden by default)
+        # Non-planar:
         self._z_range_frame = ctk.CTkFrame(tab, fg_color='transparent')
         self._z_range_frame.grid(row=r, column=0, columnspan=2, sticky='ew')
         self._z_range_frame.columnconfigure(1, weight=1)
@@ -273,13 +273,34 @@ class App(ctk.CTk):
         self._outl  = SliderRow(tab, 'Outliers  (%)  [cam 2 only]',
                                  0.0, 0.0, 50.0, r, fmt='.1f'); r += 2
 
+        self._seed_section = ctk.CTkFrame(tab, fg_color='transparent')
+        self._seed_section.grid(row=r, column=0, columnspan=2, sticky='ew'); r += 1
+        self._seed_section.columnconfigure(1, weight=1)
+
+        _SectionTitle(self._seed_section, '  Random seed').grid(
+            row=0, column=0, columnspan=2, sticky='w', padx=10, pady=(12, 2))
+
+        self._rand_seed = ctk.CTkSwitch(self._seed_section, text='New random scene at each Run',
+                                         font=FONT_NRM, onvalue=1, offvalue=0,
+                                         button_color=MAUVE, progress_color=MAUVE)
+        self._rand_seed.grid(row=1, column=0, columnspan=2, sticky='w',
+                              padx=10, pady=(2, 4))
+
+        self._seed_row = EntryRow(self._seed_section, 'Seed', 42, 2)
+
     def _on_scene_type(self, val):
         if val == 'Planar':
             self._z_frame.grid()
             self._z_range_frame.grid_remove()
-        else:
+            self._seed_section.grid()
+        elif val == 'Non-planar':
             self._z_frame.grid_remove()
             self._z_range_frame.grid()
+            self._seed_section.grid()
+        else:  # Urban
+            self._z_frame.grid_remove()
+            self._z_range_frame.grid_remove()
+            self._seed_section.grid_remove()
 
     # ── Tab Cameras ───────────────────────────────────────────────────────────
 
@@ -518,11 +539,11 @@ class App(ctk.CTk):
     def _collect_config(self):
         cfg = Config()
 
-        st_map = {'Planar': 'planar', 'Non-planar': 'nonplanar'}
+        st_map = {'Planar': 'planar', 'Non-planar': 'nonplanar', 'Urban': 'urban'}
         cfg.scene_type = st_map[self._scene_type_var.get()]
         if cfg.scene_type == 'planar':
             cfg.z_min = self._z_min.get_float(5.0)
-        else:
+        elif cfg.scene_type == 'nonplanar':
             cfg.z_min = self._z_min_np.get_float(3.0)
             cfg.z_max = self._z_max_np.get_float(7.0)
         cfg.x_range       = self._x_range.get_float(2.0)
@@ -530,7 +551,11 @@ class App(ctk.CTk):
         cfg.n_points      = self._n_pts.get_int()
         cfg.noise_sigma   = self._noise.get_float()
         cfg.outlier_ratio = self._outl.get_float() / 100.0
-        cfg.seed          = 42
+        if self._rand_seed.get() == 1:
+            cfg.seed = int(np.random.randint(0, 100000))
+            self._seed_row.set(cfg.seed)
+        else:
+            cfg.seed = self._seed_row.get_int(42)
 
         cfg.cam1_rx, cfg.cam1_ry, cfg.cam1_rz = self._c1_rot.get_floats()
         cfg.cam1_tx, cfg.cam1_ty, cfg.cam1_tz = self._c1_trans.get_floats()
@@ -646,7 +671,7 @@ class App(ctk.CTk):
 
         _draw_3d(ax3d, scene, res['R_H'], res['t_H'],
                  res['R_F'], res['t_F'], win,
-                 cfg.scene_type == 'planar', w=w, h=h)
+                 cfg.scene_type, w=w, h=h)
         _draw_image_cam1(ax_c1, scene['px1'], w=w, h=h)
         _draw_image_cam2_H(ax_c2h, scene['px2'], scene['pts3d'],
                             res['R_H'], res['t_H'], scene['K'], win, w=w, h=h)
@@ -659,7 +684,7 @@ class App(ctk.CTk):
         for ax in [ax_c1, ax_c2h, ax_c2f, ax_bar]:
             self._polish_ax2d(ax)
 
-        scene_lbl = 'Planar' if cfg.scene_type == 'planar' else 'Non-planar'
+        scene_lbl = {'planar': 'Planar', 'nonplanar': 'Non-planar', 'urban': 'Urban'}.get(cfg.scene_type, cfg.scene_type)
         self._fig.suptitle(
             f'Scene {scene_lbl}  ·  {res["n_visible"]} visible pts  ·  '
             f'Winner [{win}]',
@@ -767,6 +792,9 @@ class App(ctk.CTk):
         self._cx.set(defaults.cx); self._cy.set(defaults.cy)
         self._img_w.set(defaults.img_w); self._img_h.set(defaults.img_h)
         self._use_h.select(); self._use_f.select()
+        self._seed_section.grid()
+        self._rand_seed.deselect()
+        self._seed_row.set(42)
         self._noise_levels_var.set('0 0.5 1 2 3 5')
         self._mode_var.set('Single scene')
         self._on_mode('Single scene')
