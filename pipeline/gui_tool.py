@@ -260,8 +260,11 @@ class App(ctk.CTk):
         _SectionTitle(tab, '  Point cloud').grid(
             row=r, column=0, columnspan=2, sticky='w', padx=10, pady=(12, 2)); r += 1
 
-        self._x_range = EntryRow(tab, 'Range X  ±(m)', 2.0, r); r += 1
-        self._y_range = EntryRow(tab, 'Range Y  ±(m)', 1.5, r); r += 1
+        self._range_section = ctk.CTkFrame(tab, fg_color='transparent')
+        self._range_section.grid(row=r, column=0, columnspan=2, sticky='ew'); r += 1
+        self._range_section.columnconfigure(1, weight=1)
+        self._x_range = EntryRow(self._range_section, 'Range X  ±(m)', 2.0, 0)
+        self._y_range = EntryRow(self._range_section, 'Range Y  ±(m)', 1.5, 1)
         self._n_pts   = SliderRow(tab, 'Number of points',
                                    100, 8, 500, r, fmt='.0f', steps=492); r += 2
 
@@ -292,14 +295,17 @@ class App(ctk.CTk):
         if val == 'Planar':
             self._z_frame.grid()
             self._z_range_frame.grid_remove()
+            self._range_section.grid()
             self._seed_section.grid()
         elif val == 'Non-planar':
             self._z_frame.grid_remove()
             self._z_range_frame.grid()
+            self._range_section.grid()
             self._seed_section.grid()
         else:  # Urban
             self._z_frame.grid_remove()
             self._z_range_frame.grid_remove()
+            self._range_section.grid_remove()
             self._seed_section.grid_remove()
 
     # ── Tab Cameras ───────────────────────────────────────────────────────────
@@ -792,6 +798,7 @@ class App(ctk.CTk):
         self._cx.set(defaults.cx); self._cy.set(defaults.cy)
         self._img_w.set(defaults.img_w); self._img_h.set(defaults.img_h)
         self._use_h.select(); self._use_f.select()
+        self._range_section.grid()
         self._seed_section.grid()
         self._rand_seed.deselect()
         self._seed_row.set(42)

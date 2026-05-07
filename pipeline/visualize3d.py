@@ -46,9 +46,24 @@ def _frustum_corners(R, t, K, depth=FRUSTUM_DEPTH, w=W_IMG, h=H_IMG):
     return np.array(out)
 
 
-def _draw_frustum(ax, R, t, K, color, label, lw=1.8, ls='-', w=W_IMG, h=H_IMG):
+def _urban_T(p):
+    """Permutation de coordonnées pour la vue urban : (X,Y,Z) → (X, Z, -Y).
+    X reste X (gauche-droite), Z devient la profondeur horizontale,
+    -Y devient la hauteur verticale (Y est inversé dans notre système caméra).
+    """
+    return np.array([p[0], p[2], -p[1]])
+
+
+def _draw_frustum(ax, R, t, K, color, label, lw=1.8, ls='-', w=W_IMG, h=H_IMG,
+                  coord_fn=None):
     C       = _cam_center(R, t)
     corners = _frustum_corners(R, t, K, w=w, h=h)
+    fwd     = R.T @ np.array([0., 0., 1.]) * AXIS_LEN * 2.5
+
+    if coord_fn is not None:
+        C       = coord_fn(C)
+        corners = np.array([coord_fn(c) for c in corners])
+        fwd     = coord_fn(fwd)
 
     for corner in corners:
         ax.plot([C[0], corner[0]], [C[1], corner[1]], [C[2], corner[2]],
@@ -61,14 +76,17 @@ def _draw_frustum(ax, R, t, K, color, label, lw=1.8, ls='-', w=W_IMG, h=H_IMG):
                 color=color, lw=lw, ls=ls, alpha=0.9)
 
     ax.scatter(*C, color=color, s=60, zorder=6, depthshade=False)
-    fwd = R.T @ np.array([0., 0., 1.]) * AXIS_LEN * 2.5
     ax.quiver(*C, *fwd, color=color, lw=2.2, arrow_length_ratio=0.3, label=label)
 
 
-def _draw_cam_axes(ax, R, t):
+def _draw_cam_axes(ax, R, t, coord_fn=None):
     C = _cam_center(R, t)
+    if coord_fn is not None:
+        C = coord_fn(C)
     for i, col in enumerate(['#E53935', '#43A047', '#1E88E5']):
         d = R.T[:, i] * AXIS_LEN
+        if coord_fn is not None:
+            d = coord_fn(d)
         ax.quiver(*C, *d, color=col, lw=1.2, arrow_length_ratio=0.4, alpha=0.8)
 
 
@@ -109,48 +127,64 @@ def _draw_3d(ax, scene, R_H, t_H, R_F, t_F, winner, scene_type, w=W_IMG, h=H_IMG
     R2, t2 = scene['R_rel'], scene['t_rel']
     R1, t1 = np.eye(3), np.zeros(3)
 
-    colors = scene.get('urban_colors')
+    # En mode urban : permuter les axes (X,Y,Z) → (X,Z,-Y)
+    # pour que le plan XZ soit au sol et Y soit la hauteur verticale
+    urban   = (scene_type == 'urban')
+    cfn     = _urban_T if urban else None
+    colors  = scene.get('urban_colors')
+
+    if urban:
+        p = np.array([pts3d[0], pts3d[2], -pts3d[1]])   # pts transformés
+    else:
+        p = pts3d
+
     if colors is not None:
         from simulation.scene_urban import BUILDING_COLOR, TREE_COLOR, CAR_COLOR
         from matplotlib.patches import Patch
-        ax.scatter(pts3d[0], pts3d[1], pts3d[2],
-                   c=colors, s=18, alpha=0.7)
+        ax.scatter(p[0], p[1], p[2], c=colors, s=18, alpha=0.7)
         ax.legend(handles=[
             Patch(color=BUILDING_COLOR, label='Buildings'),
             Patch(color=TREE_COLOR,     label='Trees'),
             Patch(color=CAR_COLOR,      label='Cars'),
         ], fontsize=7, loc='upper left', framealpha=0.7)
     else:
-        ax.scatter(pts3d[0], pts3d[1], pts3d[2],
-                   c=pts3d[2], cmap='plasma', s=12, alpha=0.45, label='3D Points')
+        ax.scatter(p[0], p[1], p[2],
+                   c=p[2], cmap='plasma', s=12, alpha=0.45, label='3D Points')
 
-    _draw_frustum(ax, R1, t1, K, CAM1_C, 'Camera 1 (GT)', lw=2.0, w=w, h=h)
-    _draw_cam_axes(ax, R1, t1)
+    _draw_frustum(ax, R1, t1, K, CAM1_C, 'Camera 1 (GT)', lw=2.0, w=w, h=h, coord_fn=cfn)
+    _draw_cam_axes(ax, R1, t1, coord_fn=cfn)
 
-    _draw_frustum(ax, R2, t2, K, CAM2_C, 'Camera 2 (GT)', lw=2.0, w=w, h=h)
-    _draw_cam_axes(ax, R2, t2)
+    _draw_frustum(ax, R2, t2, K, CAM2_C, 'Camera 2 (GT)', lw=2.0, w=w, h=h, coord_fn=cfn)
+    _draw_cam_axes(ax, R2, t2, coord_fn=cfn)
 
     if R_H is not None and t_H is not None:
         lw  = 2.4 if winner == 'H' else 1.2
         ls  = '-'  if winner == 'H' else '--'
         lbl = 'Camera 2 H' + ('  [WINNER]' if winner == 'H' else '')
-        _draw_frustum(ax, R_H, t_H, K, H_C, lbl, lw=lw, ls=ls, w=w, h=h)
+        _draw_frustum(ax, R_H, t_H, K, H_C, lbl, lw=lw, ls=ls, w=w, h=h, coord_fn=cfn)
 
     if R_F is not None and t_F is not None:
         lw  = 2.4 if winner == 'F' else 1.2
         ls  = '-'  if winner == 'F' else '--'
         lbl = 'Camera 2 F' + ('  [WINNER]' if winner == 'F' else '')
-        _draw_frustum(ax, R_F, t_F, K, F_C, lbl, lw=lw, ls=ls, w=w, h=h)
+        _draw_frustum(ax, R_F, t_F, K, F_C, lbl, lw=lw, ls=ls, w=w, h=h, coord_fn=cfn)
 
-    ax.set_xlabel('X (m)', fontsize=8, labelpad=4)
-    ax.set_ylabel('Y (m)', fontsize=8, labelpad=4)
-    ax.set_zlabel('Z (m)', fontsize=8, labelpad=4)
+    if urban:
+        ax.set_xlabel('X (m)',      fontsize=8, labelpad=4)
+        ax.set_ylabel('Z / prof (m)', fontsize=8, labelpad=4)
+        ax.set_zlabel('Hauteur (m)', fontsize=8, labelpad=4)
+        ax.view_init(elev=15, azim=-60)
+    else:
+        ax.set_xlabel('X (m)', fontsize=8, labelpad=4)
+        ax.set_ylabel('Y (m)', fontsize=8, labelpad=4)
+        ax.set_zlabel('Z (m)', fontsize=8, labelpad=4)
+        ax.view_init(elev=22, azim=-65)
+
     lbl_map = {'planar': 'Planar', 'nonplanar': 'Non-planar', 'urban': 'Urban'}
     scene_lbl = lbl_map.get(scene_type, scene_type)
     ax.set_title(f'3D View — {scene_lbl}', fontsize=10, pad=10, color='#1e1e2e')
     if colors is None:
         ax.legend(fontsize=7, loc='upper left', framealpha=0.7)
-    ax.view_init(elev=22, azim=-65)
 
     C1 = _cam_center(R1, t1)
     C2 = _cam_center(R2, t2)
@@ -159,7 +193,11 @@ def _draw_3d(ax, scene, R_H, t_H, R_F, t_F, winner, scene_type, w=W_IMG, h=H_IMG
         extra.append(_cam_center(R_H, t_H))
     if R_F is not None and t_F is not None:
         extra.append(_cam_center(R_F, t_F))
-    _set_equal_3d(ax, pts3d, *[e[:, None] for e in extra])
+    if urban:
+        extra_t = [_urban_T(e)[:, None] for e in extra]
+        _set_equal_3d(ax, p, *extra_t)
+    else:
+        _set_equal_3d(ax, pts3d, *[e[:, None] for e in extra])
 
 
 def _format_image_ax(ax, title, w=W_IMG, h=H_IMG):
