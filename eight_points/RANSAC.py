@@ -27,7 +27,15 @@ class RANSAC:
         if self.epsilon == 0.0:
             self.N = 1
         else:
-            N = self.log_prob/math.log(1 - (1 - self.epsilon)**self.s)
+            # Calculate the inlier ratio
+            w = 1.0 - self.epsilon
+            
+            # Clamp 'w' to prevent math.log(0) and division by zero
+            w = max(1e-8, min(0.9999, w)) 
+            
+            # Safe adaptive N calculation
+            denominator = math.log(1.0 - (w)**self.s)
+            N = self.log_prob / denominator
             self.N = int(math.ceil(N))
     
     def random_samples(self):
