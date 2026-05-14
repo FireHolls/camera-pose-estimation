@@ -31,7 +31,7 @@ F_C    = '#D32F2F'
 # ── Geometry helpers ───────────────────────────────────────────────────────────
 
 def _cam_center(R, t):
-    return -R.T @ t
+    return R.T @ t
 
 
 def _frustum_corners(R, t, K, depth=FRUSTUM_DEPTH, w=W_IMG, h=H_IMG):
