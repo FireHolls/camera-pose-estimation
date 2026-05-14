@@ -55,8 +55,8 @@ class RANSAC:
         if self.epsilon is not None:
             self.selections()
             max_iterations = self.N
-        else:   
-            max_iterations = 100000
+        else:
+            max_iterations = 10000
         iteration = 0
         while iteration < max_iterations:
             #1 Generate model
