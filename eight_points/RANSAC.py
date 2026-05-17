@@ -52,12 +52,15 @@ class RANSAC:
         """
         Function to execute the RANSAC and find the largest valid set and the model which matches this set
         """
+        iteration = 0
         if self.epsilon is not None:
             self.selections()
             max_iterations = self.N
-        else:
-            max_iterations = 10000
-        iteration = 0
+            if self.epsilon == 0:
+                self.N = 1
+                iteration = 1
+        else:   
+            max_iterations = 100000
         while iteration < max_iterations:
             #1 Generate model
             idx = self.rng.choice(self.n_pts, self.s, replace=False)

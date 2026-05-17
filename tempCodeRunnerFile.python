@@ -1,0 +1,334 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+from simulation.camera_model      import get_K, get_camera_pose
+from simulation.projection        import project_points, filter_visible
+from simulation.homography        import homography, decompose_H
+from eight_points.eight_point_agl import eight_point
+from eight_points.Retrieve_P      import get_R_t_from_epipolar, P_estimation, parallax, find_scaling_factor
+from eight_points.RANSAC          import RANSAC, score_H_RANSAC, score_F_RANSAC
+from pipeline.score               import score_H, score_F
+from eight_points.triangulation   import triangulate
+
+def residual_H(H, px1, px2, type = "One image"):
+    N = px1.shape[1]
+    
+    # Convert to homogeneous coordinates
+    h1 = np.vstack([px1, np.ones((1, N))])   # (3, N)
+    h2 = np.vstack([px2, np.ones((1, N))])   # (3, N)
+
+    # Forward: H · px1 → px2
+    p12 = H @ h1
+    p12 = p12[:2] / p12[2] # Dehomogenization
+    # Sum over ALL dimensions (both x/y and all N points)
+    sum_d12 = np.sum((p12 - px2) ** 2) 
+
+    if type == "One image":
+        # Equation 5.1 from the textbook
+        res_H = np.sqrt(1 / (2 * N) * sum_d12)
+        
+    else:
+        # Backward: H⁻¹ · px2 → px1
+        p21 = np.linalg.inv(H) @ h2
+        p21 = p21[:2] / p21[2] # Dehomogenization
+        sum_d21 = np.sum((p21 - px1) ** 2)
+        
+        # Symmetric transfer error
+        res_H = np.sqrt(1 / (4 * N) * (sum_d12 + sum_d21))
+        
+    return res_H
+
+def residual_F(px1, px2, F, type = None):
+    N = px1.shape[1]
+    h1 = np.vstack([px1, np.ones((1, N))])
+    h2 = np.vstack([px2, np.ones((1, N))])
+    # Epipolar lines
+    Fx1  = F @ h1                                             # (3, N)
+    Ftx2 = F.T @ h2                                           # (3, N)
+    num = np.sum(h2 * Fx1, axis=0) ** 2
+    denom1 = Fx1[0]**2 + Fx1[1]**2                            # (N,)
+    denom2 = Ftx2[0]**2 + Ftx2[1]**2                          # (N,)
+    d2_sym = num * (1.0 / (denom1 + 1e-12) + 1.0 / (denom2 + 1e-12))
+    if type is not None:
+        return d2_sym
+    sum_d2_sym = np.sum(d2_sym)
+    total_error = np.sqrt(1 / (2*N) * sum_d2_sym)
+    return total_error
+
+
+def make_scene(
+    n_points=1000, 
+    scene_type='3d', 
+    x_range=2.0, 
+    y_range=1.5, 
+    z_min=5.0, 
+    z_max=15.0,
+    fx=1000.0, fy=1000.0, cx=960.0, cy=540.0, 
+    img_w=1920, img_h=1080,
+    cam1_rx=0.0, cam1_ry=0.0, cam1_rz=0.0, cam1_tx=0.0, cam1_ty=0.0, cam1_tz=0.0,
+    cam2_rx=0.0, cam2_ry=8.0, cam2_rz=0.0, cam2_tx=1.5, cam2_ty=0, cam2_tz=0.0,
+    noise_sigma=1.0, 
+    outlier_ratio=0.1,
+    seed=42,
+    dispersion = None
+):
+    """
+    Generates a synthetic scene seen by two cameras.
+    Returns a dict: pts3d, px1, px2, K, R_rel, t_rel, R1, t1.
+    """
+    rng = np.random.default_rng(seed)
+
+    # 1. Generate 3D Points
+    xs = rng.uniform(-x_range, x_range, n_points)
+    ys = rng.uniform(-y_range, y_range, n_points)
+    if dispersion is not None:
+        # 1. Generate random angles between 0 and 2π
+        angles = rng.uniform(0, 2 * np.pi, n_points)
+        
+        # 2. Generate random radii
+        # CRITICAL: You must take the square root of the random uniform value!
+        # If you don't, your points will cluster heavily in the exact center.
+        radii = dispersion * np.sqrt(rng.uniform(0, 1, n_points))
+        
+        # 3. Convert polar coordinates (radius, angle) back to Cartesian (X, Y)
+        xs = radii * np.cos(angles)
+        ys = radii * np.sin(angles)
+
+    if scene_type == 'planar':
+        zs = np.full(n_points, z_min)
+    else:
+        lo, hi = min(z_min, z_max), max(z_min, z_max)
+        zs = rng.uniform(lo, hi, n_points)
+
+    pts3d = np.vstack([xs, ys, zs])
+    
+    # 2. Camera Intrinsics
+    K = np.array([[fx,  0, cx],
+                  [ 0, fy, cy],
+                  [ 0,  0,  1]], dtype=np.float64)
+
+    # 3. Camera Poses (Extrinsics)
+    R1, t1 = get_camera_pose(cam1_rx, cam1_ry, cam1_rz,
+                             cam1_tx, cam1_ty, cam1_tz)
+    R2, t2 = get_camera_pose(cam2_rx, cam2_ry, cam2_rz,
+                             cam2_tx, cam2_ty, cam2_tz)
+
+    R_rel = R2 @ R1.T
+    t_rel = t2 - R_rel @ t1
+
+    # 4. Project and Filter Visible Points
+    px1_c, d1 = project_points(pts3d, K, R1, t1)
+    px2_c, d2 = project_points(pts3d, K, R2, t2)
+    
+    vis = (filter_visible(px1_c, d1, img_w, img_h) &
+           filter_visible(px2_c, d2, img_w, img_h))
+
+    px1 = px1_c[:, vis].copy()
+    px2 = px2_c[:, vis].copy()
+    M   = px1.shape[1]
+
+    # 5. Inject Gaussian Noise
+    if noise_sigma > 0 and M > 0:
+        nrng = np.random.default_rng(seed + 1000)
+        px1 += nrng.normal(0, noise_sigma, px1.shape)
+        px2 += nrng.normal(0, noise_sigma, px2.shape)
+
+    # 6. Inject Outliers (False Matches)
+    if outlier_ratio > 0 and M > 0:
+        orng  = np.random.default_rng(seed + 2000)
+        n_out = min(max(1, int(round(M * outlier_ratio))), M)
+        idx   = orng.choice(M, n_out, replace=False)
+        px2[0, idx] = orng.uniform(0, img_w, n_out)
+        px2[1, idx] = orng.uniform(0, img_h, n_out)
+
+    return {
+        'pts3d': pts3d[:, vis], 
+        'px1': px1, 
+        'px2': px2,
+        'K': K, 
+        'R_rel': R_rel, 
+        't_rel': t_rel,
+        'R1': R1, 
+        't1': t1,
+    }
+
+def _rot_err(R_est, R_ref):
+    tr = np.trace(R_est.T @ R_ref)
+    return np.degrees(np.arccos(np.clip((tr - 1) / 2, -1, 1)))
+
+
+def _trans_err(t_est, t_ref):
+    u = t_est / (np.linalg.norm(t_est) + 1e-12)
+    v = t_ref / (np.linalg.norm(t_ref) + 1e-12)
+    return np.degrees(np.arccos(np.clip(abs(np.dot(u, v)), 0, 1)))
+
+def _trans_mag_err(t_est, t_ref):
+    return np.linalg.norm(t_ref - t_est)
+
+def get_angles_from_matrix(R):
+    # Extract ry (theta)
+    # Note: this assumes the matrix is not in a "Gimbal Lock" state (ry != 90 or -90 deg)
+    ry = np.arcsin(-R[2, 0])
+    
+    # Extract rx (phi)
+    rx = np.arctan2(R[2, 1], R[2, 2])
+    
+    # Extract rz (psi)
+    rz = np.arctan2(R[1, 0], R[0, 0])
+    
+    # Convert from radians to degrees
+    return np.degrees([rx, ry, rz])
+
+
+simu = 500
+Nb_pts = 200
+noise_sigmas = np.arange(0, 3.5, 0.5)
+num_iterations = len(noise_sigmas)
+repro_F = np.full((simu, len(noise_sigmas)), np.nan)
+repro_H = np.full((simu, len(noise_sigmas)), np.nan)
+# 1. FIXED: Initialize as 1D arrays matching the length of noise_sigmas
+
+for j in range(simu):
+    res_F = np.full(num_iterations, np.nan)
+    R_error = np.full(num_iterations, np.nan)
+    t_error = np.full(num_iterations, np.nan)
+    Repro_error = np.full(num_iterations, np.nan)
+    Ransac_mask = np.full(num_iterations, np.nan)
+    t_error_mag_F = np.full(num_iterations, np.nan)
+    r_est = np.full((num_iterations, 3), np.nan)
+    r_true = np.full((num_iterations, 3), np.nan)
+    count = 0
+    for i in noise_sigmas:
+        scene_data = make_scene(n_points=Nb_pts, outlier_ratio=0, noise_sigma=i,cam2_tx= -3, cam2_ty= -3, cam2_tz=-3, cam2_rx= 5, cam2_ry= 5, cam2_rz= 5, seed = j)
+        pts3d_vis = scene_data['pts3d']
+        px1_vis = scene_data['px1']
+        px2_vis = scene_data['px2']
+        K = scene_data['K']
+        R1 = np.eye(3)
+        t1 = np.zeros((3,1))
+        R_true = scene_data['R_rel']
+        t_true = scene_data['t_rel']
+
+        ransac_solver_F = RANSAC(
+            s=8, 
+            score_fct=score_F_RANSAC,
+            model_fct=eight_point, 
+            px1=px1_vis, 
+            px2=px2_vis,
+            epsilon=None
+            )
+        F_Ransac, mask = ransac_solver_F.execute_RANSAC()
+        clean_px1 = px1_vis[:, mask]
+        clean_px2 = px2_vis[:, mask]
+        clean_p3d = pts3d_vis[:, mask]
+        tf, R_1f, R_2f = get_R_t_from_epipolar(F_Ransac, K = K) 
+
+        #7 Estrimate the projection matrix
+        P_estf = P_estimation(tf, R_1f, R_2f, K) # First method
+        R2_hat, t2_norm, P2_norm = parallax(P_estf, K, clean_px1, clean_px2)
+        s = find_scaling_factor(P2_norm, K, clean_px1, clean_px2, clean_p3d)
+        s = np.linalg.norm(t_true)
+        t2_hat = s*t2_norm
+        r_true[count, :] = get_angles_from_matrix(R_true)
+        r_est[count, :] = get_angles_from_matrix(R2_hat)
+        res_F[count] = residual_F(clean_px1, clean_px2, F_Ransac)
+        t_error_mag_F[count] = _trans_mag_err(t2_hat.flatten(), t_true)
+        Ransac_mask[count] = np.sum(mask)/mask.shape[0]
+        repro_F[j, count] = res_F[count]
+        count +=1
+        
+        
+    Nb_pts = 200
+    noise_sigmas = np.arange(0, 3.5, 0.5)
+    num_iterations = len(noise_sigmas)
+
+    # 1. FIXED: Initialize as 1D arrays matching the length of noise_sigmas
+    res_H = np.full(num_iterations, np.nan)
+    Ransac_mask = np.full(num_iterations, np.nan)
+    t_error_mag_H = np.full(num_iterations, np.nan)
+    r_est_H = np.full((num_iterations, 3), np.nan)
+    r_true_H = np.full((num_iterations, 3), np.nan)
+
+    count = 0
+    for i in noise_sigmas:
+        scene_data = make_scene(n_points=Nb_pts, outlier_ratio=0, noise_sigma=i, scene_type="planar", cam2_tx= -3, cam2_ty= -3, cam2_tz=-3, cam2_rx= 5, cam2_ry= 5, cam2_rz= 5, z_min= 10, seed = j)
+        pts3d_vis = scene_data['pts3d']
+        px1_vis = scene_data['px1']
+        px2_vis = scene_data['px2']
+        K = scene_data['K']
+        R1 = np.eye(3)
+        t1 = np.zeros((3,1))
+        R_true = scene_data['R_rel']
+        t_true = scene_data['t_rel']
+        plane_dist = 10
+
+        ransac_solver_H = RANSAC(
+            s=4, 
+            score_fct=score_H_RANSAC,
+            model_fct=homography, 
+            px1=px1_vis, 
+            px2=px2_vis,
+            epsilon=None
+            )
+        H_Ransac, mask = ransac_solver_H.execute_RANSAC()
+        clean_px1 = px1_vis[:, mask]
+        clean_px2 = px2_vis[:, mask]
+        clean_p3d = pts3d_vis[:, mask]
+        R_H, t_H = decompose_H(H_Ransac, K, plane_dist=10,
+                                        X_ref=clean_p3d[:, 0])
+                                        
+        res_H[count] = residual_H(H_Ransac, clean_px1, clean_px2, type = "else")
+        t_error_mag_H[count] = _trans_mag_err(t_H.flatten(), t_true)
+        Ransac_mask[count] = np.sum(mask)/mask.shape[0]
+        r_true_H[count, :] = get_angles_from_matrix(R_true)
+        r_est_H[count, :] = get_angles_from_matrix(R_H)
+        repro_H[j, count] = res_H[count]
+        count +=1
+    print(j) 
+np.savetxt('repro_F.csv', repro_F, delimiter=',')
+np.savetxt('repro_H.csv', repro_H, delimiter=',')
+
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+
+# ---------------------------------------------------------
+# Subplot 1: 8-Point (F) Reprojection Error Boxplot
+# ---------------------------------------------------------
+ax1.boxplot(repro_F, labels=noise_sigmas)
+
+ax1.set_xlabel('Noise Sigma (pixels)')
+ax1.set_ylabel('Reprojection Error (pixels)')
+ax1.set_title('Fundamental Matrix (F) Reprojection Error Distribution')
+ax1.grid(True, linestyle='--', alpha=0.7, axis='y')
+
+# ---------------------------------------------------------
+# Subplot 2: Homography (H) Reprojection Error Boxplot
+# ---------------------------------------------------------
+ax2.boxplot(repro_H, labels=noise_sigmas)
+
+ax2.set_xlabel('Noise Sigma (pixels)')
+# Y-label is omitted here since the axis is shared with ax1
+ax2.set_title('Homography Matrix (H) Reprojection Error Distribution')
+ax2.grid(True, linestyle='--', alpha=0.7, axis='y')
+
+# Final formatting
+fig.tight_layout()
+plt.show()
+
+import pandas as pd
+
+# Create DataFrames with the noise levels as column names
+columns = [f"Sigma {s:.1f}" for s in noise_sigmas]
+
+df_F = pd.DataFrame(repro_F, columns=columns)
+df_H = pd.DataFrame(repro_H, columns=columns)
+
+print("==================================================")
+print("     8-Point (F) Reprojection Error Stats")
+print("==================================================")
+print(df_F.describe().round(4))
+
+print("\n\n==================================================")
+print("     Homography (H) Reprojection Error Stats")
+print("==================================================")
+print(df_H.describe().round(4))
